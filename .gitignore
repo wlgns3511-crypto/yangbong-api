@@ -1,3 +1,11 @@
 ﻿__pycache__/
 .venv/
 .env
+.env.local
+.env*.local
+node_modules/
+.next/
+out/
+dist/
+*.pyc
+.DS_Store
