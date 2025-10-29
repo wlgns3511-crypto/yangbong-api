@@ -27,7 +27,8 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://yangbong.club",          # 프론트
+        "https://yangbong.club",
+        "https://www.yangbong.club",
         "http://localhost:3000",          # 로컬 개발
     ],
     allow_credentials=True,
