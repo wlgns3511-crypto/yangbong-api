@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # ---- deps ----
-# requirements.txt가 레포 루트에 있다고 가정
+# requirements.txt 가 레포 루트에 있다고 가정
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -23,4 +23,3 @@ EXPOSE 8080
 # ---- start ----
 # 반드시 0.0.0.0 + $PORT로 바인딩
 CMD ["bash", "-lc", "cd apps/api && uvicorn app:app --host 0.0.0.0 --port ${PORT} --workers ${UVICORN_WORKERS} --proxy-headers"]
-
