@@ -2,20 +2,24 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-type WorldItem = {
-  code: string;
+/** ======================
+ *  공통 타입 & 유틸
+ *  ====================== */
+type BaseItem = {
+  code: string;         // or symbol
   name: string;
   price: number;
   change: number;
-  change_pct: number; // -0.31 처럼 %
+  change_pct: number;   // % (ex. -0.31)
 };
 
-type WorldResp = {
-  updated_at: string;
-  items: WorldItem[];
+type GenericResp = {
+  updated_at?: string;
+  items: any[];
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+const CRYPTO_LIST = process.env.NEXT_PUBLIC_CRYPTO_LIST || 'BTC,ETH,XRP,SOL,BNB';
 
 /** 공용: 지연 + 재시도 fetch */
 async function fetchWithRetry<T>(
@@ -48,11 +52,24 @@ const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFr
 function colorOf(v: number) {
   if (v > 0) return '#d32f2f'; // 빨강
   if (v < 0) return '#1976d2'; // 파랑
-  return '#6b7280'; // 보합(회색)
+  return '#6b7280';            // 보합
 }
 
-/** 카드 컴포넌트 */
-function TickerCard({ item }: { item: WorldItem }) {
+/** 서버 응답 → 공통 BaseItem 으로 느슨하게 매핑 */
+function mapToBaseItem(raw: any): BaseItem {
+  return {
+    code: raw.code ?? raw.symbol ?? '',
+    name: raw.name ?? raw.symbol ?? raw.code ?? '',
+    price: Number(raw.price ?? 0),
+    change: Number(raw.change ?? 0),
+    change_pct: Number(raw.change_pct ?? 0),
+  };
+}
+
+/** ======================
+ *  UI 조각
+ *  ====================== */
+function TickerCard({ item }: { item: BaseItem }) {
   const upDown = item.change > 0 ? '▲' : item.change < 0 ? '▼' : '—';
   const changeColor = colorOf(item.change);
 
@@ -72,7 +89,6 @@ function TickerCard({ item }: { item: WorldItem }) {
   );
 }
 
-/** 스켈레톤 */
 function SkeletonCard() {
   return (
     <div style={styles.card}>
@@ -83,65 +99,94 @@ function SkeletonCard() {
   );
 }
 
-export default function Home() {
-  // 9칸: 다우, 나스닥, S&P500, 니케이, 상해종합, 항셍, FTSE, CAC, DAX
-  const worldUrl = useMemo(() => `${API_BASE}/api/market/world`, []);
-  const [world, setWorld] = useState<WorldItem[] | null>(null);
+/** 공용 섹션: url만 바꿔서 재사용 */
+function BoardSection({
+  title,
+  url,
+  column = 3,
+  skeletonCount = 6,
+}: {
+  title: string;
+  url: string;
+  column?: number;
+  skeletonCount?: number;
+}) {
+  const [items, setItems] = useState<BaseItem[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [minSkeletonDone, setMinSkeletonDone] = useState(false); // 최소 1초 스켈레톤
+  const [minSkeletonDone, setMinSkeletonDone] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setMinSkeletonDone(true), 1000);
-
-    fetchWithRetry<WorldResp>(worldUrl, {}, 3)
-      .then((json) => setWorld(json.items ?? []))
+    fetchWithRetry<GenericResp>(url, {}, 3)
+      .then((json) => setItems((json.items ?? []).map(mapToBaseItem)))
       .catch((e) => setErr(String(e)));
-
     return () => clearTimeout(t);
-  }, [worldUrl]);
+  }, [url]);
 
-  const showSkeleton = !world && !err && !minSkeletonDone;
+  const showSkeleton = !items && !err && !minSkeletonDone;
+
+  return (
+    <section>
+      <div style={styles.sectionTitle}>{title}</div>
+
+      {showSkeleton && (
+        <div style={{ ...styles.grid, gridTemplateColumns: `repeat(${column}, minmax(0,1fr))` }}>
+          {Array.from({ length: skeletonCount }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      )}
+
+      {!showSkeleton && err && (
+        <div style={styles.error}>
+          데이터를 불러오지 못했어요. 잠시 후 다시 시도해주세요. <small>({err})</small>
+        </div>
+      )}
+
+      {!showSkeleton && items && (
+        <div style={{ ...styles.grid, gridTemplateColumns: `repeat(${column}, minmax(0,1fr))` }}>
+          {items.map((it) => (
+            <TickerCard key={`${title}-${it.code}`} item={it} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** ======================
+ *  페이지
+ *  ====================== */
+export default function Home() {
+  const worldUrl = useMemo(() => `${API_BASE}/api/market/world`, []);
+  const krUrl = useMemo(() => `${API_BASE}/api/market/kr`, []);
+  const cryptoUrl = useMemo(
+    () => `${API_BASE}/api/crypto/tickers?list=${encodeURIComponent(CRYPTO_LIST)}`,
+    []
+  );
 
   return (
     <main style={styles.wrap}>
       <header style={styles.header}>
         <h1 style={styles.title}>🐝 양봉클럽</h1>
-        <div style={styles.subtitle}>세계 지수 · 실시간 요약</div>
+        <div style={styles.subtitle}>세계/국내 지수 · 코인 시세 요약</div>
       </header>
 
       {/* 세계 지수 9칸 */}
-      <section>
-        <div style={styles.sectionTitle}>세계 지수</div>
+      <BoardSection title="세계 지수" url={worldUrl} column={3} skeletonCount={9} />
 
-        {showSkeleton && (
-          <div style={styles.grid}>
-            {Array.from({ length: 9 }).map((_, i) => (
-              <SkeletonCard key={i} />
-            ))}
-          </div>
-        )}
+      {/* 국내 지수 3칸 (KOSPI/KOSDAQ/K200) */}
+      <BoardSection title="국내 지수" url={krUrl} column={3} skeletonCount={3} />
 
-        {!showSkeleton && err && (
-          <div style={styles.error}>
-            데이터를 불러오지 못했어요. 새로고침 해주세요. <small>({err})</small>
-          </div>
-        )}
-
-        {!showSkeleton && world && (
-          <div style={styles.grid}>
-            {world.map((it) => (
-              <TickerCard key={it.code} item={it} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* 국내 지수/코인 섹션은 동일 패턴으로 이어서 붙이면 됩니다. */}
+      {/* 코인 4~6칸 */}
+      <BoardSection title="코인" url={cryptoUrl} column={3} skeletonCount={6} />
     </main>
   );
 }
 
-/** 간단 스타일 (의존성 추가 없이) */
+/** ======================
+ *  스타일 (의존성 無)
+ *  ====================== */
 const styles: Record<string, React.CSSProperties> = {
   wrap: {
     maxWidth: 1080,
@@ -149,14 +194,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '28px 20px 60px',
     fontFamily:
       '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol',
+    background: '#fafafa',
   },
   header: { marginBottom: 18 },
   title: { fontSize: 24, fontWeight: 700, margin: 0 },
   subtitle: { color: '#6b7280', marginTop: 4 },
-  sectionTitle: { fontSize: 18, fontWeight: 700, margin: '18px 0 12px' },
+  sectionTitle: { fontSize: 18, fontWeight: 700, margin: '22px 0 12px' },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
     gap: 12,
   },
   card: {
