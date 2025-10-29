@@ -5,11 +5,12 @@ import asyncio
 from contextlib import asynccontextmanager
 from market_world import router as world_router
 
+# 핵심: FastAPI 인스턴스는 app 이름으로 존재해야 함
+
 async def start_background_tasks():
-    # 무거운 초기화는 여기에서 비동기로
     try:
         await asyncio.sleep(0)
-        # 예: 스케줄러 start, warm-up 등
+        # 스케줄러/크롤러 시작 등은 여기서 비동기로
     except Exception as e:
         print(f"[startup-bg] {e}")
 
@@ -28,7 +29,7 @@ app.add_middleware(
     allow_credentials=True,
 )
 
-# --- 절대 의존성 없는 즉시 OK health ---
+# /health 라우트는 외부 의존 없이 즉시 200을 리턴
 @app.get("/health")
 def health():
     return JSONResponse({"ok": True})
@@ -37,6 +38,5 @@ def health():
 def ping():
     return {"pong": "yangbong"}
 
-# 여기에 기존 라우트들 import (단, import 시점에 외부 호출/대용량 작업 없음 보장!)
 app.include_router(world_router)
 
