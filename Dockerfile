@@ -16,11 +16,13 @@ COPY . .
 # ---- runtime ----
 ENV PORT=8080 \
     UVICORN_WORKERS=1 \
-    APP_MODULE=app:app
-# APP_MODULE이 필요하면 Railway Variables에서 APP_MODULE=main:app 처럼 바꿔도 됨
-# 현재 구조(apps/api/app.py)를 사용하려면 APP_MODULE=apps.api.app:app로 설정
+    APP_MODULE=app:app \
+    PYTHONPATH=/app/apps/api:/app
+# PYTHONPATH 설정으로 apps/api 디렉토리를 Python 모듈 경로에 추가
+# APP_MODULE=app:app은 PYTHONPATH에 /app/apps/api가 있어서 apps/api/app.py를 찾을 수 있음
 
 EXPOSE 8080
 
 # ---- start ----
+# PYTHONPATH 설정으로 apps/api를 모듈 경로에 추가, cd 없이 실행
 CMD ["bash", "-lc", "uvicorn ${APP_MODULE} --host 0.0.0.0 --port ${PORT:-8080} --workers ${UVICORN_WORKERS:-1} --proxy-headers"]
