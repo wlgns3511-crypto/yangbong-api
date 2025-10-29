@@ -1,31 +1,33 @@
 // lib/api.ts
 const BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
-
-export async function fetchJson<T>(path: string, init?: RequestInit, tries = 3, timeoutMs = 8000): Promise<T> {
-  const url = path.startsWith("http") ? path : `${BASE}${path}`;
-  let lastErr: any;
-  for (let i = 0; i < tries; i++) {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), timeoutMs);
+async function fetchWithRetry<T>(url: string, init?: RequestInit, retries = 3, delayMs = 500): Promise<T> {
+  let last: any;
+  for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(url, { ...init, cache: "no-store", signal: c.signal });
-      clearTimeout(t);
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const res = await fetch(url, { ...init, cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return (await res.json()) as T;
     } catch (e) {
-      clearTimeout(t);
-      lastErr = e;
-      if (i < tries - 1) await sleep(400 * (i + 1)); // 0.4s, 0.8s, 1.2s
+      last = e;
+      if (i < retries - 1) await new Promise(r => setTimeout(r, delayMs));
     }
   }
-  throw lastErr;
+  throw last;
 }
 
-// 최소 표시 시간(스켈레톤 1초 보장)
-export async function withMinDelay<T>(p: Promise<T>, minMs = 1000): Promise<T> {
-  const [res] = await Promise.all([p, sleep(minMs)]);
-  return res;
+export type Ticker = { code: string; name: string; price: number; change: number; change_pct: number; };
+
+export async function getWorld() {
+  return fetchWithRetry<{ updated_at: string; items: Ticker[] }>(`${BASE}/api/market/world`);
+}
+
+export async function getKorea() {
+  return fetchWithRetry<{ updated_at: string; items: Ticker[] }>(`${BASE}/api/market/kr`);
+}
+
+export async function getCrypto(list?: string) {
+  const q = list ? `?list=${encodeURIComponent(list)}` : "";
+  return fetchWithRetry<{ updated_at: string; items: Ticker[] }>(`${BASE}/api/crypto/tickers${q}`);
 }
 
