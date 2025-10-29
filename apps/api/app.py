@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from market_world import router as world_router
 
-app = FastAPI(title="Yangbong API", version="1.0.0")
+app = FastAPI(title="Yangbong API", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,5 +20,5 @@ def health():
 def ping():
     return {"pong": "yangbong"}
 
-# python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000
+app.include_router(world_router)
 
