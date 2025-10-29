@@ -15,7 +15,9 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "baseUrl": ".",
-    "paths": {},
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "incremental": true,
     "esModuleInterop": true,
     "isolatedModules": true,
