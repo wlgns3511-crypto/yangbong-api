@@ -1,18 +1,21 @@
 from fastapi import APIRouter
-import requests, csv, io
+import requests
+import csv
+import io
+from datetime import datetime
 
-router = APIRouter(prefix="/market", tags=["market"])
+router = APIRouter(prefix="/api/market", tags=["market"])
 
 STOOQ_MAP = {
-    "DOW": {"symbol": "^dji", "name_kr": "다우산업"},
-    "NASDAQ": {"symbol": "^ixic", "name_kr": "나스닥"},
-    "SP500": {"symbol": "^spx", "name_kr": "S&P500"},
-    "NIKKEI": {"symbol": "^n225", "name_kr": "니케이225"},
-    "SSEC": {"symbol": "^ssec", "name_kr": "상해종합"},
-    "HSI": {"symbol": "^hsi", "name_kr": "항셍"},
-    "FTSE": {"symbol": "^ftse", "name_kr": "영국 FTSE100"},
-    "CAC40": {"symbol": "^cac40", "name_kr": "프랑스 CAC40"},
-    "DAX": {"symbol": "^dax", "name_kr": "독일 DAX"},
+    "^DJI": {"symbol": "^dji", "name": "다우"},
+    "^IXIC": {"symbol": "^ixic", "name": "나스닥"},
+    "^SPX": {"symbol": "^spx", "name": "S&P500"},
+    "^N225": {"symbol": "^n225", "name": "니케이225"},
+    "^SSEC": {"symbol": "^ssec", "name": "상해종합"},
+    "^HSI": {"symbol": "^hsi", "name": "항셍"},
+    "^FTSE": {"symbol": "^ftse", "name": "영국 FTSE100"},
+    "^CAC40": {"symbol": "^cac40", "name": "프랑스 CAC40"},
+    "^DAX": {"symbol": "^dax", "name": "독일 DAX"},
 }
 
 def _fetch_single(symbol: str) -> dict:
@@ -25,28 +28,63 @@ def _fetch_single(symbol: str) -> dict:
         return row
     return {}
 
-@router.get("/world")
-def world_indices():
-    result = {}
+async def fetch_world_indices() -> dict:
+    """세계 주식 시장 지수 조회"""
+    items = []
     
-    for key, meta in STOOQ_MAP.items():
+    for code, meta in STOOQ_MAP.items():
         try:
             row = _fetch_single(meta["symbol"])
-            o = float(row.get("Open") or 0)
             c = float(row.get("Close") or 0)
-            h = float(row.get("High") or 0)
-            l = float(row.get("Low") or 0)
-            v = int(float(row.get("Volume") or 0))
-            chg = c - o
-            chg_pct = (chg / o * 100) if o else 0.0
-            result[key] = {
-                "key": key, "name": meta["name_kr"],
-                "price": round(c,2), "change": round(chg,2), "change_pct": round(chg_pct,2),
-                "open": round(o,2), "high": round(h,2), "low": round(l,2), "close": round(c,2), "volume": v,
-                "raw": row
-            }
+            o = float(row.get("Open") or 0)
+            
+            # 스토크 CSV에는 전일 종가가 없으므로, Open과 Close의 차이로 대략 계산
+            # 실제로는 전일 종가를 별도로 조회해야 하지만, 간단히 Open 기준 사용
+            # 또는 1일 전 데이터를 조회할 수 있음 (d1 파라미터)
+            change = c - o
+            change_pct = (change / o * 100) if o and o != 0 else 0.0
+            
+            # 더 정확한 change 계산을 위해 1일 전 데이터 조회 시도
+            try:
+                prev_url = f"https://stooq.com/q/l/?s={meta['symbol']}&f=d1&e=csv"
+                prev_r = requests.get(prev_url, timeout=10)
+                if prev_r.status_code == 200:
+                    prev_lines = prev_r.text.strip().split('\n')
+                    if len(prev_lines) > 1:
+                        prev_parts = prev_lines[1].split(',')
+                        if len(prev_parts) > 1:
+                            prev_close = float(prev_parts[1]) if prev_parts[1] else o
+                            change = c - prev_close
+                            change_pct = (change / prev_close * 100) if prev_close and prev_close != 0 else 0.0
+            except:
+                pass  # 전일 데이터 조회 실패 시 Open 기준 사용
+            
+            items.append({
+                "code": code,
+                "name": meta["name"],
+                "price": round(c, 2),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2)
+            })
         except Exception as e:
-            result[key] = {"key": key, "name": meta["name_kr"], "error": True, "error_msg": str(e)}
+            print(f"[World index {code} fetch error] {e}")
+            continue
     
-    return {"ok": True, "count": len(result), "data": result}
+    return {
+        "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "items": items
+    }
+
+@router.get("/world")
+async def world():
+    """세계 주식 시장 지수 조회"""
+    from cache import get_cache, put_cache
+    
+    data = get_cache("world")
+    if data:
+        return data
+    
+    data = await fetch_world_indices()
+    put_cache("world", data, ttl=60)
+    return data
 
