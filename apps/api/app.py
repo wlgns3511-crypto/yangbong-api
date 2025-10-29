@@ -26,7 +26,10 @@ app = FastAPI(lifespan=lifespan)
 # CORS (프론트부터 붙일 수 있게 오픈)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 배포 안정 후 도메인으로 좁히기
+    allow_origins=[
+        "https://yangbong.club",          # 프론트
+        "http://localhost:3000",          # 로컬 개발
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
