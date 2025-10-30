@@ -3,7 +3,8 @@ FROM python:3.11-slim
 # 기본 설정
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=on
+    PIP_NO_CACHE_DIR=on \
+    PYTHONPATH=/app
 
 # 작업 디렉토리 설정
 WORKDIR /app
@@ -19,5 +20,5 @@ RUN if [ -f ./apps/api/requirements.txt ]; then \
     fi
 
 # Uvicorn 실행: 모듈 경로 자동 판별 (apps.api.app 우선, 실패 시 app)
-CMD sh -c "uvicorn apps.api.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1} --proxy-headers || uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1} --proxy-headers"
+CMD sh -c "uvicorn apps.api.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1} --proxy-headers"
 
