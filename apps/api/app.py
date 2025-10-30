@@ -115,3 +115,8 @@ def api_news(tab: str = "kr", page: int = 1, page_size: int = 10):
         "published_at": now
     } for i in range(page_size)]
     return JSONResponse({"updated_at": now, "tab": tab, "items": items})
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    uvicorn.run("apps.api.app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
