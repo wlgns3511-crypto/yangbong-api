@@ -7,13 +7,16 @@ from bs4 import BeautifulSoup
 
 app = FastAPI(title="yangbong-api")
 
-# CORS: yangbong.club + vercel 프리뷰(와일드카드) 허용
+# CORS 설정
+origins = [
+    "https://yangbong.club",   # Vercel 프로덕션
+    "https://yangbong-web.vercel.app",  # 혹시 preview 도메인용
+    "http://localhost:3000",   # 개발용
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://yangbong.club",
-        "https://*.vercel.app",
-    ],
+    allow_origins=origins,        # 허용할 프론트 주소들
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
