@@ -6,13 +6,21 @@ from datetime import datetime, timezone
 
 app = FastAPI(title="yangbong-api")
 
+# CORS ---------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://yangbong.club", "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=[
+        "https://yangbong.club",
+        "https://www.yangbong.club",
+        "http://localhost:3000",  # 로컬 개발
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app$",  # Vercel 프리뷰 도메인 전체 허용
+    allow_credentials=False,
+    allow_methods=["GET", "OPTIONS"],  # 프리플라이트 대응
     allow_headers=["*"],
+    max_age=86400,
 )
+# --------------------------------------------------------------
 
 class NewsItem(BaseModel):
     id: str
