@@ -64,12 +64,25 @@ def build_mock_items(t: str, n: int, offset: int = 0) -> List[NewsItem]:
 def health():
     return {"ok": True}
 
-@app.get("/news", response_model=ApiListResponse)
-def list_news(
+@app.get("/api/news", response_model=ApiListResponse)
+async def list_news_api(
     type: str = Query("kr"),
     limit: int = Query(12, ge=1, le=50),
     offset: int = Query(0, ge=0),
+    sort: Optional[str] = Query(None),
+    image_only: Optional[int] = Query(None),
 ):
     t = normalize_type(type)
     items = build_mock_items(t, limit, offset)
     return ApiListResponse(ok=True, items=items, total=1000, next_cursor=str(offset + limit))
+
+@app.get("/news", include_in_schema=False)
+async def list_news_compat(
+    type: str = Query("kr"),
+    limit: int = Query(12, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    sort: Optional[str] = Query(None),
+    image_only: Optional[int] = Query(None),
+):
+    # 내부에서 실제 /api/news 핸들러를 호출
+    return await list_news_api(type=type, limit=limit, offset=offset, sort=sort, image_only=image_only)
