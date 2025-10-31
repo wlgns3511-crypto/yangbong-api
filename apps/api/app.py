@@ -9,17 +9,17 @@ app = FastAPI(title="yangbong-api")
 
 # CORS 설정
 origins = [
-    "https://yangbong.club",   # Vercel 프로덕션
-    "https://yangbong-web.vercel.app",  # 혹시 preview 도메인용
-    "http://localhost:3000",   # 개발용
+    "https://yangbong.club",           # Vercel Production (메인 사이트)
+    "https://yangbong-web.vercel.app", # Preview 환경 (테스트 배포용)
+    "http://localhost:3000",           # 로컬 개발용
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,        # 허용할 프론트 주소들
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],          # 모든 HTTP 메서드 허용 (GET, POST 등)
+    allow_headers=["*"],          # 모든 헤더 허용
 )
 
 class NewsItem(BaseModel):
