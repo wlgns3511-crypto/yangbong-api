@@ -46,7 +46,7 @@ def build_mock_items(t: str, n: int, offset: int = 0) -> List[NewsItem]:
         "crypto": ("코인데스크코리아", "암호화폐 주요 이슈"),
     }
     src, base = seeds.get(t, ("양봉클럽", "뉴스 요약"))
-    out = []
+    out: List[NewsItem] = []
     for i in range(n):
         idx = offset + i + 1
         out.append(NewsItem(
