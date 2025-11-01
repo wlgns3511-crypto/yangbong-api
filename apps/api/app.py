@@ -3,6 +3,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from .news import router as news_router
+from .news_routes import router as news_routes
+from .market_crypto import router as crypto_router
+from .market_commodity import router as commodity_router
 
 app = FastAPI()
 
@@ -17,6 +20,11 @@ app.add_middleware(
 
 # 뉴스 라우터 등록 (실제 기사 수집 모드)
 app.include_router(news_router)
+# 뉴스 저장/조회 라우터 등록 (인메모리 스토어)
+app.include_router(news_routes)
+# 코인 및 원자재 시세 라우터 등록
+app.include_router(crypto_router)
+app.include_router(commodity_router)
 
 @app.get("/health")
 async def health():
