@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 import time
 import re
 
-from news import get_news_kr, get_news_us, get_news_crypto  # 이전에 만든 실기사 수집 함수 재사용
+from .news import get_news_kr, get_news_us, get_news_crypto  # 이전에 만든 실기사 수집 함수 재사용
 
 router = APIRouter()
 
