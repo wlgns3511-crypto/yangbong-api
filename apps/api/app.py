@@ -28,23 +28,20 @@ async def news(type: str = "kr", limit: int = 12):
     }
 
 @app.get("/market")
-async def market(cache: int = 0):
-    try:
-        snap = {
-            "kr": [
-                {"code": "KOSPI", "name": "코스피", "price": None, "change": None, "change_pct": None},
-                {"code": "KOSDAQ", "name": "코스닥", "price": None, "change": None, "change_pct": None},
-                {"code": "KOSPI200", "name": "코스피200", "price": None, "change": None, "change_pct": None},
-            ],
-            "world": [
-                {"code": "DJI", "name": "다우", "price": None, "change": None, "change_pct": None},
-                {"code": "IXIC", "name": "나스닥", "price": None, "change": None, "change_pct": None},
-                {"code": "SPX", "name": "S&P500", "price": None, "change": None, "change_pct": None},
-            ],
-        }
-        return snap
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"market endpoint error: {e}")
+def market(cache: int = 0):
+    snap = {
+        "kr": [
+            {"code": "KOSPI", "name": "코스피", "price": 2450.25, "change": +12.3, "change_pct": +0.5},
+            {"code": "KOSDAQ", "name": "코스닥", "price": 820.14, "change": -5.7, "change_pct": -0.69},
+            {"code": "KOSPI200", "name": "코스피200", "price": 325.33, "change": +2.1, "change_pct": +0.65},
+        ],
+        "world": [
+            {"code": "DJI", "name": "다우", "price": 39000.5, "change": +150.2, "change_pct": +0.38},
+            {"code": "IXIC", "name": "나스닥", "price": 17500.1, "change": -32.1, "change_pct": -0.18},
+            {"code": "SPX", "name": "S&P500", "price": 5200.3, "change": +8.5, "change_pct": +0.16},
+        ],
+    }
+    return snap
 
 if __name__ == "__main__":
     uvicorn.run("apps.api.app:app", host="0.0.0.0", port=8000)
