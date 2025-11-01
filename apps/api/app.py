@@ -1,8 +1,8 @@
 # apps/api/app.py
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, timezone
 import uvicorn
+from .news import router as news_router
 
 app = FastAPI()
 
@@ -15,38 +15,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 뉴스 라우터 등록 (실제 기사 수집 모드)
+app.include_router(news_router)
+
 @app.get("/health")
 async def health():
     return {"ok": True}
-
-@app.get("/news")
-def get_news(limit: int = 3, type: str = "kr"):
-    # 실제 수집 로직이 연결되기 전까지 임시 포맷을 프론트 요구형으로 제공
-    items = [
-        {
-            "title": "샘플 뉴스 1",
-            "url": "https://news.example.com/1",
-            "source": "샘플신문",
-            "published_at": datetime.now(timezone.utc).isoformat(),
-            "image": None
-        },
-        {
-            "title": "샘플 뉴스 2",
-            "url": "https://news.example.com/2",
-            "source": "샘플신문",
-            "published_at": datetime.now(timezone.utc).isoformat(),
-            "image": None
-        },
-        {
-            "title": "샘플 뉴스 3",
-            "url": "https://news.example.com/3",
-            "source": "샘플신문",
-            "published_at": datetime.now(timezone.utc).isoformat(),
-            "image": None
-        },
-    ][:limit]
-
-    return {"status": "ok", "type": type, "limit": limit, "data": items}
 
 @app.get("/market")
 def get_market(cache: int = 0):
