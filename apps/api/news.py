@@ -9,12 +9,18 @@ router = APIRouter()
 def _feed(url: str, limit: int, source_hint: str = ""):
     d = feedparser.parse(url)
     out = []
-    src = (getattr(d, "feed", {}) or {}).get("title", source_hint)
     for e in d.entries[:limit]:
+        # Google News RSS는 언론사가 e.source.title 에 들어있음
+        pub = ""
+        try:
+            pub = getattr(getattr(e, "source", None), "title", "") or source_hint
+        except Exception:
+            pub = source_hint
+
         out.append({
             "title": getattr(e, "title", "제목 없음"),
             "url": getattr(e, "link", "#"),
-            "source": src or source_hint,
+            "source": pub,  # ← 여기만 바뀜
             "published_at": getattr(e, "published", "") or getattr(e, "updated", ""),
             "image": None,
         })
