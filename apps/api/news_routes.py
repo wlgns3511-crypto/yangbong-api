@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import time
 import re
 
@@ -65,7 +64,7 @@ def _refetch_if_needed(type_: str, limit: int):
     LAST_REFETCH[type_] = now
 
 
-def _slice_by_cursor(ids: List[str], cursor: str|None, limit: int):
+def _slice_by_cursor(ids: List[str], cursor: Optional[str], limit: int):
     if not cursor:
         return ids[:limit], None
     try:
@@ -79,7 +78,7 @@ def _slice_by_cursor(ids: List[str], cursor: str|None, limit: int):
 
 @router.get("/news/list")
 def news_list(type: str = Query("kr", pattern="^(kr|us|crypto)$"),
-              limit: int = 20, cursor: str | None = None):
+              limit: int = 20, cursor: Optional[str] = None):
     _refetch_if_needed(type, max(limit, 50))
     ids = IDX_BY_TYPE[type]
     page, next_cursor = _slice_by_cursor(ids, cursor, limit)
@@ -109,7 +108,9 @@ def news_search(q: str, type: str = Query("kr|us|crypto")):
     # type 필터: "kr", "us", "crypto" 또는 파이프 여러개 "kr|crypto"
     types = set([t for t in type.split("|") if t in ("kr","us","crypto")])
     pool = []
-    for t in types or ("kr","us","crypto"):
+    # types가 비어있으면 모든 타입 사용
+    search_types = types if types else ("kr","us","crypto")
+    for t in search_types:
         pool += [STORE[i] for i in IDX_BY_TYPE[t]]
     qs = q.strip().lower()
     hit = [a for a in pool if qs in a["title"].lower() or qs in a.get("summary","").lower()

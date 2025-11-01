@@ -1,6 +1,7 @@
 # apps/api/market_crypto.py
 
 from fastapi import APIRouter, Query
+from typing import List
 import httpx
 import time
 
@@ -22,7 +23,7 @@ MAP = {
 }
 
 
-async def _fetch(ids: list[str]):
+async def _fetch(ids: List[str]):
     params = {
         "ids": ",".join(ids),
         "vs_currencies": "usd",

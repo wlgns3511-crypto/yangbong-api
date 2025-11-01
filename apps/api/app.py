@@ -1,5 +1,5 @@
 # apps/api/app.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from .news import router as news_router

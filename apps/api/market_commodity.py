@@ -59,7 +59,7 @@ async def market_commodity(symbols: str = Query("WTI,BRENT,GOLD,SILVER,COPPER"))
     global _cache
     now = time.time()
     want = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    need = [MAP[s] for s in want if s in MAP]
+    # MAP에 있는 심볼만 필터링
 
     # 캐시 만료 시 갱신
     if now - _cache["ts"] > TTL:
