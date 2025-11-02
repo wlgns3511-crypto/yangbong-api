@@ -1,77 +1,84 @@
 # apps/api/kis_client.py
-import time
 import os
-import httpx
+import time
+import requests
+from urllib.parse import urljoin
 
-KIS_BASE_URL = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
-KIS_APP_KEY = os.getenv("KIS_APP_KEY", "")
-KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "")
-KIS_SCOPE = os.getenv("KIS_SCOPE", "real")  # real or vts
+KIS_BASE = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
+APP_KEY = os.getenv("KIS_APP_KEY", "")
+APP_SECRET = os.getenv("KIS_APP_SECRET", "")
 
-# ====== ★★ 여기를 문서대로 채우면 끝 ★★ ======
-# 지수 조회용 TR ID (실전/모의 다름 → 필요 시 분기)
-TR_ID_INDEX = {
-    "real": "FHKUP03500000",   # 예시(placeholder). 문서에서 '지수 시세' TR ID 확인 후 정확히 입력
-    "vts":  "VTKUP03500000",   # 예시(placeholder)
-}
-# KIS 지수코드 매핑 (문서 기준 코드로 바꾸면 됨)
-INDEX_CODES = {
-    "KOSPI":   "0001",  # 예시
-    "KOSDAQ":  "1001",  # 예시
-    "KPI200":  "2001",  # 예시(코스피200)
-}
-# ===========================================
+_token_cache = {"access_token": None, "expires_at": 0}
 
-class KISClient:
-    _token = None
-    _token_exp = 0
 
-    @classmethod
-    async def _issue_token(cls):
-        url = f"{KIS_BASE_URL}/oauth2/tokenP"
-        payload = {
-            "grant_type": "client_credentials",
-            "appkey": KIS_APP_KEY,
-            "appsecret": KIS_APP_SECRET,
-        }
-        async with httpx.AsyncClient(timeout=10) as s:
-            r = await s.post(url, json=payload)
-            r.raise_for_status()
-            data = r.json()
-            # 표준 응답키(access_token, expires_in 등) 확인해 조정
-            cls._token = data.get("access_token")
-            # 만료 1시간 가정(문서에 맞게 조정)
-            cls._token_exp = int(time.time()) + int(data.get("expires_in", 3600)) - 60
+def _token_alive() -> bool:
+    return _token_cache["access_token"] and _token_cache["expires_at"] - time.time() > 30
 
-    @classmethod
-    async def token(cls) -> str:
-        if not cls._token or time.time() > cls._token_exp:
-            await cls._issue_token()
-        return cls._token
 
-    @classmethod
-    async def get_index_quote(cls, idx_code: str) -> dict:
-        """
-        KIS 지수 단건 시세 조회.
-        - TR/쿼리파라미터는 KIS 문서대로 맞춰야 함.
-        - 여기선 대표적인 형태로 FID_INPUT_ISCD에 지수코드 넣는 케이스 예시.
-        """
-        token = await cls.token()
-        tr_id = TR_ID_INDEX.get(KIS_SCOPE, TR_ID_INDEX["real"])
-        headers = {
-            "authorization": f"Bearer {token}",
-            "appkey": KIS_APP_KEY,
-            "appsecret": KIS_APP_SECRET,
-            "tr_id": tr_id,
-        }
-        params = {
-            # KIS 문서 확인 후 파라미터 key 정확히 맞추기
-            "FID_COND_MRKT_DIV_CODE": "U",   # 예시(지수구분)
-            "FID_INPUT_ISCD": idx_code,      # 지수 코드
-        }
-        url = f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-index"
-        async with httpx.AsyncClient(timeout=10) as s:
-            r = await s.get(url, headers=headers, params=params)
-            r.raise_for_status()
-            return r.json()
+def get_access_token() -> str:
+    if _token_alive():
+        return _token_cache["access_token"]
 
+    url = urljoin(KIS_BASE, "/oauth2/tokenP")
+    headers = {"content-type": "application/json; charset=utf-8"}
+    payload = {
+        "grant_type": "client_credentials",
+        "appkey": APP_KEY,
+        "appsecret": APP_SECRET,
+    }
+    r = requests.post(url, json=payload, headers=headers, timeout=10)
+    r.raise_for_status()
+    data = r.json()
+    access_token = data.get("access_token") or data.get("accessToken")
+    expires_in = data.get("expires_in", 300)
+    if not access_token:
+        raise RuntimeError(f"Token response missing access_token: {data}")
+    _token_cache.update(
+        {"access_token": access_token, "expires_at": time.time() + int(expires_in)}
+    )
+    return access_token
+
+
+def _auth_headers(tr_id: str) -> dict:
+    return {
+        "content-type": "application/json; charset=utf-8",
+        "authorization": f"Bearer {get_access_token()}",
+        "appkey": APP_KEY,
+        "appsecret": APP_SECRET,
+        "tr_id": tr_id,
+        "custtype": "P",
+    }
+
+
+def get_index(fid_cond_mrkt_div_code: str, fid_input_iscd: str) -> dict:
+    """
+    지수 시세 조회
+    - fid_cond_mrkt_div_code: 'U' (통합)
+    - fid_input_iscd: '0001'(코스피), '1001'(코스닥), '2001'(코스피200)
+    """
+    path = "/uapi/domestic-stock/v1/quotations/inquire-index"
+    url = urljoin(KIS_BASE, path)
+
+    # 문서/버전별로 tr_id가 바뀌는 경우가 있어 폴백 준비
+    tr_candidates = [
+        "FHKUP03500100",   # 지수/업종 조회(표준)
+        "CTCA0903R",       # 일부 문서에서 쓰이는 지수조회 TR (fallback)
+    ]
+
+    params = {
+        "FID_COND_MRKT_DIV_CODE": fid_cond_mrkt_div_code,
+        "FID_INPUT_ISCD": fid_input_iscd,
+    }
+
+    last_err = None
+    for tr in tr_candidates:
+        try:
+            r = requests.get(url, headers=_auth_headers(tr), params=params, timeout=10)
+            if r.status_code == 200:
+                return r.json()
+            # 디버깅에 도움되도록 본문 함께 남김
+            last_err = (r.status_code, r.text)
+        except requests.RequestException as e:
+            last_err = (None, str(e))
+
+    raise RuntimeError(f"KIS error: {last_err}")
