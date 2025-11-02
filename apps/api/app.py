@@ -17,8 +17,8 @@ app = FastAPI()
 
 # ✅ CORS 설정 (프로덕션 도메인만 허용)
 origins = [
-    "https://www.yangbong.club",
     "https://yangbong.club",
+    "https://www.yangbong.club",
     "http://localhost:3000",
 ]
 
@@ -26,7 +26,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=False,
-    allow_methods=["*"],
+    allow_methods=["GET", "HEAD", "OPTIONS"],
     allow_headers=["*"],
 )
 
