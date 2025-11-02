@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .market_kr import router as kr_router
 from .market_world import router as world_router         # <-- 추가
 from .market_crypto import router as crypto_router       # <-- 추가
+from .market_unified import router as unified_router     # 통합 API
 from .news_routes import router as news_router
 
 app = FastAPI()
@@ -26,6 +27,7 @@ def health():
 app.include_router(kr_router)                                # 예: prefix="/market/kr" 가 router 쪽에 있을 가능성
 app.include_router(world_router)                             # <-- 추가 (이미 prefix="/market" 포함, /world 엔드포인트)
 app.include_router(crypto_router)                            # <-- 추가 (이미 /market/crypto 전체 경로 정의됨)
+app.include_router(unified_router)                           # 통합 API: /api/market
 app.include_router(news_router)                              # /news
 
 import httpx
