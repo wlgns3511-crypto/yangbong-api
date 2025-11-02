@@ -1,7 +1,8 @@
 # apps/api/app.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .market_kr import router as kr_router
+from .market_kr import router as market_router
+from .news_routes import router as news_router
 
 app = FastAPI()
 
@@ -17,7 +18,8 @@ app.add_middleware(
 def health():
     return {"ok": True}
 
-app.include_router(kr_router)
+app.include_router(market_router)  # /market/kr
+app.include_router(news_router)    # /news
 
 import httpx
 
