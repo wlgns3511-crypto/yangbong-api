@@ -20,8 +20,10 @@ def _token_alive() -> bool:
 
 def get_access_token() -> str:
     if _token_alive():
+        log.debug("Using cached token")
         return _token_cache["access_token"]
 
+    log.info("Fetching new access token")
     url = urljoin(KIS_BASE, "/oauth2/tokenP")
     headers = {"content-type": "application/json; charset=utf-8"}
     payload = {
@@ -29,13 +31,21 @@ def get_access_token() -> str:
         "appkey": APP_KEY,
         "appsecret": APP_SECRET,
     }
+    
+    log.debug(f"Token request: url={url}, appkey={APP_KEY[:8]}...")
     r = requests.post(url, json=payload, headers=headers, timeout=10)
+    log.debug(f"Token response: status={r.status_code}")
+    
     r.raise_for_status()
     data = r.json()
     access_token = data.get("access_token") or data.get("accessToken")
     expires_in = data.get("expires_in", 300)
+    
     if not access_token:
+        log.error(f"Token response missing access_token: {data}")
         raise RuntimeError(f"Token response missing access_token: {data}")
+    
+    log.info(f"Token obtained: expires_in={expires_in}, token_preview={access_token[:20]}...")
     _token_cache.update(
         {"access_token": access_token, "expires_at": time.time() + int(expires_in)}
     )
@@ -59,6 +69,8 @@ def get_index(fid_cond_mrkt_div_code: str, fid_input_iscd: str) -> dict:
     - fid_cond_mrkt_div_code: 'U' (통합)
     - fid_input_iscd: '0001'(코스피), '1001'(코스닥), '2001'(코스피200)
     """
+    log.info(f"[BEFORE REQUEST] get_index called: fid_cond_mrkt_div_code={fid_cond_mrkt_div_code}, fid_input_iscd={fid_input_iscd}")
+    
     path = "/uapi/domestic-stock/v1/quotations/inquire-index"
     url = urljoin(KIS_BASE, path)
 
@@ -74,25 +86,35 @@ def get_index(fid_cond_mrkt_div_code: str, fid_input_iscd: str) -> dict:
         "fid_input_iscd": fid_input_iscd,
     }
 
+    log.info(f"[BEFORE REQUEST] URL={url}, params={params}")
+
     last_err = None
     for tr in tr_candidates:
         try:
+            log.info(f"[BEFORE REQUEST] Preparing auth headers for tr_id={tr}")
             headers = _auth_headers(tr)
-            log.info(f"Trying KIS: url={url}, tr_id={tr}, params={params}")
+            
+            # 헤더 확인 (민감정보는 일부만 표시)
+            log.info(f"[BEFORE REQUEST] Headers prepared: tr_id={headers.get('tr_id')}, custtype={headers.get('custtype')}, has_auth={bool(headers.get('authorization'))}, has_appkey={bool(headers.get('appkey'))}, has_appsecret={bool(headers.get('appsecret'))}")
+            
+            log.info(f"[BEFORE REQUEST] Sending request to KIS")
             r = requests.get(url, headers=headers, params=params, timeout=10)
-            log.info(f"KIS response: status={r.status_code}, headers={dict(r.headers)}")
+            log.info(f"[AFTER REQUEST] Response received: status={r.status_code}")
+            log.info(f"[AFTER REQUEST] Response headers: {dict(r.headers)}")
+            
             if r.status_code == 200:
                 result = r.json()
-                log.info(f"KIS success: tr_id={tr}, result keys={list(result.keys()) if isinstance(result, dict) else 'not dict'}")
+                log.info(f"[AFTER REQUEST] KIS success: tr_id={tr}, result keys={list(result.keys()) if isinstance(result, dict) else 'not dict'}")
                 return result
             # 디버깅에 도움되도록 본문 함께 남김
             response_text = r.text[:500] if r.text else "(empty)"
             last_err = (r.status_code, response_text)
-            log.warning(f"KIS failed: tr_id={tr}, status={r.status_code}, body={response_text}")
+            log.warning(f"[AFTER REQUEST] KIS failed: tr_id={tr}, status={r.status_code}, body={response_text}")
         except requests.RequestException as e:
             last_err = (None, str(e))
-            log.error(f"KIS request exception: tr_id={tr}, error={e}")
+            log.error(f"[AFTER REQUEST] KIS request exception: tr_id={tr}, error={e}", exc_info=True)
 
+    log.error(f"[AFTER REQUEST] All tr_ids failed: {last_err}")
     raise RuntimeError(f"KIS error: {last_err}")
 
 
