@@ -10,6 +10,7 @@ from .news_routes import router as news_routes
 from .market_crypto import router as crypto_router
 from .market_commodity import router as commodity_router
 from .market_world import router as world_router
+from .market_kr import router as kr_router
 from .market_crypto import _fetch, _norm, MAP as CRYPTO_MAP, _cache as crypto_cache, TTL as CRYPTO_TTL
 
 app = FastAPI()
@@ -32,6 +33,8 @@ app.include_router(crypto_router)
 app.include_router(commodity_router)
 # 세계 지수 라우터 등록
 app.include_router(world_router)
+# 국내 지수 라우터 등록 (KIS API)
+app.include_router(kr_router)
 
 @app.get("/health")
 async def health():

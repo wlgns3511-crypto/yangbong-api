@@ -1,82 +1,53 @@
+# apps/api/market_kr.py
 from fastapi import APIRouter
-import requests
-import csv
-import io
-from datetime import datetime
+from .vendors.kis import kis_get
+import time
 
-router = APIRouter(prefix="/api/market", tags=["market"])
+router = APIRouter(prefix="/market", tags=["market"])
+
+# 👉 여기 두 줄만 KIS 문서의 실제 경로/파라미터로 바꿔줘
+PATH_INDEX = "/uapi/domestic-stock/v1/market-index"  # 문서 기준 실제 경로로 교체
+KR_INDICES = [
+    {"id": "KOSPI", "name": "코스피", "params": {"FID_COND_MRKT_DIV_CODE": "U"}},  # 예시
+    {"id": "KOSDAQ", "name": "코스닥", "params": {"FID_COND_MRKT_DIV_CODE": "J"}},  # 예시
+    {"id": "KPI200", "name": "코스피200", "params": {"FID_COND_MRKT_DIV_CODE": "K"}},  # 예시
+]
+
+_cache = {"ts": 0, "data": None}
+TTL = 10
 
 
-async def fetch_kr_indices() -> dict:
-    """한국 주식 시장 지수 조회 (네이버/야후 등)"""
-    items = []
-    
-    # KOSPI, KOSDAQ은 스토크에서 가져옴
-    indices = [
-        {"symbol": "kospi", "code": "KOSPI", "name": "코스피"},
-        {"symbol": "kosdaq", "code": "KOSDAQ", "name": "코스닥"}
-    ]
-    
-    for idx in indices:
+def _norm(row: dict) -> dict:
+    price = row.get("bstp_nmix_prpr") or row.get("closePrice") or row.get("prpr")
+    chg = row.get("bstp_nmix_prdy_vrss") or row.get("compareToPreviousClosePrice") or row.get("prdy_vrss")
+    pct = row.get("bstp_nmix_prdy_ctrt") or row.get("fluctuationsRatio") or row.get("prdy_ctrt")
+
+    def f(x):
         try:
-            url = f"https://stooq.com/q/l/?s={idx['symbol']}&f=sd2t2ohlcv&h&e=csv"
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
-            content = r.content.decode("utf-8", errors="ignore")
-            reader = csv.DictReader(io.StringIO(content))
-            
-            for row in reader:
-                c = float(row.get("Close") or 0)
-                o = float(row.get("Open") or 0)
-                
-                # 전일 종가를 대략적으로 계산 (Open이 전일 종가에 가까움)
-                # 또는 별도로 전일 데이터 조회
-                prev_close = o
-                change = c - prev_close
-                change_pct = (change / prev_close * 100) if prev_close and prev_close != 0 else 0.0
-                
-                # 전일 데이터 조회 시도 (더 정확한 계산)
-                try:
-                    prev_url = f"https://stooq.com/q/l/?s={idx['symbol']}&f=d1&e=csv"
-                    prev_r = requests.get(prev_url, timeout=10)
-                    if prev_r.status_code == 200:
-                        prev_content = prev_r.content.decode("utf-8", errors="ignore")
-                        prev_reader = csv.DictReader(io.StringIO(prev_content))
-                        for prev_row in prev_reader:
-                            prev_close = float(prev_row.get("Close") or o)
-                            change = c - prev_close
-                            change_pct = (change / prev_close * 100) if prev_close and prev_close != 0 else 0.0
-                            break
-                except:
-                    pass
-                
-                items.append({
-                    "code": idx["code"],
-                    "name": idx["name"],
-                    "price": round(c, 2),
-                    "change": round(change, 2),
-                    "change_pct": round(change_pct, 2)
-                })
-                break
-        except Exception as e:
-            print(f"[{idx['code']} fetch error] {e}")
-    
-    return {
-        "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "items": items
-    }
+            return float(x)
+        except:
+            return None
+
+    return {"close": f(price), "change": f(chg), "pct": f(pct)}
 
 
 @router.get("/kr")
-async def kr():
-    """한국 주식 시장 지수 조회"""
-    from cache import get_cache, put_cache
-    
-    data = get_cache("kr")
-    if data:
-        return data
-    
-    data = await fetch_kr_indices()
-    put_cache("kr", data, ttl=60)
-    return data
+def market_kr():
+    now = time.time()
+    if _cache["data"] and now - _cache["ts"] < TTL:
+        return _cache["data"]
 
+    items = []
+    for it in KR_INDICES:
+        try:
+            j = kis_get(PATH_INDEX, it["params"])
+            out = j.get("output") or j.get("result") or j
+            row = out[0] if isinstance(out, list) and out else out
+            items.append({"id": it["id"], "name": it["name"], **_norm(row or {})})
+        except Exception as e:
+            # KIS API 오류 시 해당 지수는 스킵하고 계속 진행
+            items.append({"id": it["id"], "name": it["name"], "close": None, "change": None, "pct": None})
+
+    _cache["ts"] = now
+    _cache["data"] = {"ok": True, "source": "kis", "items": items}
+    return _cache["data"]
