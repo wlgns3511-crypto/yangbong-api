@@ -15,11 +15,17 @@ from .market_crypto import _fetch, _norm, MAP as CRYPTO_MAP, _cache as crypto_ca
 
 app = FastAPI()
 
-# ✅ CORS 설정 (모든 도메인 허용 — 테스트용)
+# ✅ CORS 설정 (프로덕션 도메인만 허용)
+origins = [
+    "https://www.yangbong.club",
+    "https://yangbong.club",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # 일단 전부 허용 (확실히 열기)
-    allow_credentials=True,
+    allow_origins=origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
