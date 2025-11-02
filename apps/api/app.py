@@ -1,7 +1,11 @@
 # apps/api/app.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .market_kr import router as market_router
+
+# ✅ 라우터 import 추가
+from .market_kr import router as kr_router
+from .market_world import router as world_router         # <-- 추가
+from .market_crypto import router as crypto_router       # <-- 추가
 from .news_routes import router as news_router
 
 app = FastAPI()
@@ -18,8 +22,11 @@ app.add_middleware(
 def health():
     return {"ok": True}
 
-app.include_router(market_router)  # /market/kr
-app.include_router(news_router)    # /news
+# ✅ 라우터 등록 (프리픽스는 각 파일 설계에 맞춰 선택)
+app.include_router(kr_router)                                # 예: prefix="/market/kr" 가 router 쪽에 있을 가능성
+app.include_router(world_router)                             # <-- 추가 (이미 prefix="/market" 포함, /world 엔드포인트)
+app.include_router(crypto_router)                            # <-- 추가 (이미 /market/crypto 전체 경로 정의됨)
+app.include_router(news_router)                              # /news
 
 import httpx
 
