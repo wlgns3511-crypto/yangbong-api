@@ -60,8 +60,9 @@ def get_index(fid_cond_mrkt_div_code: str, fid_input_iscd: str) -> dict:
     url = urljoin(KIS_BASE, path)
 
     tr_candidates = [
-        "FHKST03010100",   # ✅ 올바른 TR ID
-        "CTCA0903R",       # fallback
+        "FHKST03010100",   # ✅ 지수 조회 정식 TR
+        "FHKUP03500100",   # 보조
+        "CTCA0903R",       # 폴백
     ]
 
     # ✅ 여기를 모두 소문자로 수정
