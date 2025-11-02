@@ -52,4 +52,33 @@ def kis_ping():
     # 가장 무난한 토큰 엔드포인트를 단순 호출 (실제 토큰 발급 함수가 있다면 그걸 호출해도 됨)
     return {"base": base, "ok": True}
 
+@debug.get("/kis/test-index")
+def kis_test_index(code: str = "0001"):
+    """KIS 인덱스 조회를 직접 테스트 (디버깅용)"""
+    from apps.api.kis_client import get_index, get_access_token, KIS_BASE
+    try:
+        token_info = {
+            "has_token": bool(get_access_token()),
+            "token_preview": get_access_token()[:20] + "..." if get_access_token() else None,
+        }
+        
+        result = get_index("U", code)
+        
+        return {
+            "ok": True,
+            "kis_base": KIS_BASE,
+            "code": code,
+            "token_info": token_info,
+            "response_keys": list(result.keys()) if isinstance(result, dict) else "not dict",
+            "response_preview": str(result)[:500] if result else "empty",
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "kis_base": KIS_BASE,
+            "code": code,
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }
+
 app.include_router(debug)

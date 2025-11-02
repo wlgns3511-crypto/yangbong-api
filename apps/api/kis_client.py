@@ -2,7 +2,10 @@
 import os
 import time
 import requests
+import logging
 from urllib.parse import urljoin
+
+log = logging.getLogger("kis_client")
 
 KIS_BASE = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 APP_KEY = os.getenv("KIS_APP_KEY", "")
@@ -74,12 +77,20 @@ def get_index(fid_cond_mrkt_div_code: str, fid_input_iscd: str) -> dict:
     last_err = None
     for tr in tr_candidates:
         try:
-            r = requests.get(url, headers=_auth_headers(tr), params=params, timeout=10)
+            headers = _auth_headers(tr)
+            log.info(f"Trying KIS: url={url}, tr_id={tr}, params={params}")
+            r = requests.get(url, headers=headers, params=params, timeout=10)
+            log.info(f"KIS response: status={r.status_code}, headers={dict(r.headers)}")
             if r.status_code == 200:
-                return r.json()
+                result = r.json()
+                log.info(f"KIS success: tr_id={tr}, result keys={list(result.keys()) if isinstance(result, dict) else 'not dict'}")
+                return result
             # 디버깅에 도움되도록 본문 함께 남김
-            last_err = (r.status_code, r.text)
+            response_text = r.text[:500] if r.text else "(empty)"
+            last_err = (r.status_code, response_text)
+            log.warning(f"KIS failed: tr_id={tr}, status={r.status_code}, body={response_text}")
         except requests.RequestException as e:
             last_err = (None, str(e))
+            log.error(f"KIS request exception: tr_id={tr}, error={e}")
 
     raise RuntimeError(f"KIS error: {last_err}")
