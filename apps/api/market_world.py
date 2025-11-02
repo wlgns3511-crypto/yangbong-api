@@ -6,28 +6,25 @@ import csv
 import io
 import time
 import logging
+from .kis_client import get_overseas_price
 
 router = APIRouter(prefix="/market", tags=["market"])
 
 log = logging.getLogger("market_world")
-headers = {"User-Agent": "Mozilla/5.0 (compatible; YangbongBot/1.0; +https://yangbong.club)"}
 
-INDEXES = [
-    {"id": "DOW",  "name": "다우",        "stooq": "^dji",   "yahoo": "^DJI"},
-    {"id": "IXIC", "name": "나스닥",      "stooq": "^ixic",  "yahoo": "^IXIC"},
-    {"id": "SPX",  "name": "S&P500",     "stooq": "^spx",   "yahoo": "^GSPC"},
-    {"id": "N225", "name": "니케이225",   "stooq": "^n225",  "yahoo": "^N225"},
-    {"id": "SSEC", "name": "상해종합",    "stooq": "^ssec",  "yahoo": "000001.SS"},
-    {"id": "HSI",  "name": "항셍",        "stooq": "^hsi",   "yahoo": "^HSI"},
-    {"id": "FTSE", "name": "영국FTSE100", "stooq": "^ftse",  "yahoo": "^FTSE"},
-    {"id": "CAC40","name": "프랑스CAC40", "stooq": "^cac40", "yahoo": "^FCHI"},
-    {"id": "DAX",  "name": "독일DAX",     "stooq": "^dax",   "yahoo": "^GDAXI"},
+ETF_MAP = [
+    {"id": "DOW",  "name": "다우",     "excd": "NYS", "symb": "DIA"},
+    {"id": "IXIC", "name": "나스닥100", "excd": "NAS", "symb": "QQQ"},
+    {"id": "SPX",  "name": "S&P500",  "excd": "NYS", "symb": "SPY"},
+    # TODO: 니케이/항셍/상해/FTSE/CAC/DAX는 master 코드 보고 EXCD/SYMB 확정
 ]
 
 _cache = {"ts": 0, "data": None}
 TTL = 60
 
+# 기존 stooq/yahoo 백업용 (필요시 사용)
 def _stooq_batch(symbols: List[str]):
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; YangbongBot/1.0; +https://yangbong.club)"}
     url = "https://stooq.com/q/l/?s=" + ",".join(symbols) + "&i=d"
     r = requests.get(url, timeout=6, headers=headers)
     r.raise_for_status()
@@ -40,12 +37,13 @@ def _stooq_batch(symbols: List[str]):
         try:
             close = float(row[6])
         except Exception:
-            close = None  # N/D 등
+            close = None
         out[sym.lower()] = {"close": close}
     log.info(f"STOOQ filled {sum(1 for v in out.values() if v['close'] is not None)}/{len(symbols)}")
     return out
 
 def _yahoo_batch(symbols: List[str]):
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; YangbongBot/1.0; +https://yangbong.club)"}
     url = "https://query1.finance.yahoo.com/v7/finance/quote"
     r = requests.get(url, params={"symbols": ",".join(symbols)}, timeout=6, headers=headers)
     r.raise_for_status()
@@ -69,53 +67,31 @@ def world(cache: int = Query(default=1, description="0=강제갱신")):
     if cache and _cache["data"] and now - _cache["ts"] < TTL:
         return _cache["data"]
 
-    stooq_syms = [i["stooq"] for i in INDEXES]
-    yahoo_syms = [i["yahoo"] for i in INDEXES]
+    items = []
+    for m in ETF_MAP:
+        try:
+            log.info(f"Fetching overseas: {m['id']} (excd={m['excd']}, symb={m['symb']})")
+            p = get_overseas_price(m["excd"], m["symb"])
+            items.append({
+                "id": m["id"],
+                "name": m["name"],
+                "close": p["price"],
+                "change": p["change"],
+                "pct": p["pct"],
+            })
+            log.info(f"Success: {m['id']} price={p['price']}")
+        except Exception as e:
+            log.error(f"Error fetching {m['id']}: {e}", exc_info=True)
+            items.append({
+                "id": m["id"],
+                "name": m["name"],
+                "close": None,
+                "change": None,
+                "pct": None,
+                "error": str(e)
+            })
 
-    stooq = {}
-    yahoo = {}
-    source = []
-
-    try:
-        stooq = _stooq_batch(stooq_syms)
-        source.append("stooq")
-    except Exception as e:
-        log.warning(f"stooq error: {e}")
-
-    try:
-        yahoo = _yahoo_batch(yahoo_syms)
-        source.append("yahoo")
-    except Exception as e:
-        log.warning(f"yahoo error: {e}")
-
-    data = []
-    for idx in INDEXES:
-        s_sym = idx["stooq"].lower()
-        y_sym = idx["yahoo"]
-
-        close = None
-        change = None
-        pct = None
-
-        if s_sym in stooq and stooq[s_sym]["close"] is not None:
-            close = stooq[s_sym]["close"]
-
-        yrow = yahoo.get(y_sym)
-        if yrow:
-            change = yrow.get("change", change)
-            pct = yrow.get("pct", pct)
-            if close is None:
-                close = yrow.get("close")
-
-        data.append({
-            "id": idx["id"],
-            "name": idx["name"],
-            "close": close,
-            "change": change,
-            "pct": pct,
-        })
-
-    payload = {"ok": True, "source": ">".join(source) or "none", "items": data}
+    payload = {"ok": True, "source": "kis(overseas-price)", "items": items}
     _cache["ts"] = now
     _cache["data"] = payload
     return payload

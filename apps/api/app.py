@@ -81,4 +81,14 @@ def kis_test_index(code: str = "0001"):
             "error_type": type(e).__name__,
         }
 
+@debug.get("/kis/overseas")
+def kis_overseas_price(excd: str = "NAS", symb: str = "AAPL"):
+    from .kis_client import get_overseas_price, KIS_BASE
+    try:
+        data = get_overseas_price(excd, symb)
+        return {"ok": True, "base": KIS_BASE, "excd": excd, "symb": symb, **data}
+    except Exception as e:
+        return {"ok": False, "base": KIS_BASE, "excd": excd, "symb": symb,
+                "error": str(e), "type": type(e).__name__}
+
 app.include_router(debug)

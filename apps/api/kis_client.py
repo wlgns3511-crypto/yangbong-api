@@ -94,3 +94,42 @@ def get_index(fid_cond_mrkt_div_code: str, fid_input_iscd: str) -> dict:
             log.error(f"KIS request exception: tr_id={tr}, error={e}")
 
     raise RuntimeError(f"KIS error: {last_err}")
+
+
+def get_overseas_price(excd: str, symb: str) -> dict:
+    """
+    해외주식 현재체결가 (v1_해외주식-009)
+    ex) EXCD: NAS/NYS/AMS/HKS/TSE ... , SYMB: AAPL, SPY, QQQ, 2800, 1321 등
+    """
+    path = "/uapi/overseas-price/v1/quotations/price"
+    url = urljoin(KIS_BASE, path)
+    params = {"AUTH": "", "EXCD": excd, "SYMB": symb}
+
+    r = requests.get(url, headers=_auth_headers("HHDFS00000300"),
+                     params=params, timeout=10)
+    r.raise_for_status()
+    j = r.json()
+
+    # output 스키마 보호적으로 파싱
+    out = (j.get("output") or j.get("Output") or {})
+    def num(keys, default=None):
+        for k in keys:
+            v = out.get(k)
+            try:
+                if v is None or v == "": 
+                    continue
+                return float(str(v).replace(',', ''))
+            except Exception:
+                continue
+        return default
+
+    price  = num(["last", "ovrs_now_prc", "last_prc"])
+    change = num(["prdy_vrss", "net_chg", "ovrs_prdy_vrss"])
+    pct    = num(["prdy_ctrt", "rate", "ovrs_prdy_ctrt"])
+
+    return {
+        "raw": j,                 # 디버깅용 원본
+        "price": price,
+        "change": change,
+        "pct": pct,
+    }
