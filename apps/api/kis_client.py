@@ -59,15 +59,15 @@ def get_index(fid_cond_mrkt_div_code: str, fid_input_iscd: str) -> dict:
     path = "/uapi/domestic-stock/v1/quotations/inquire-index"
     url = urljoin(KIS_BASE, path)
 
-    # 문서/버전별로 tr_id가 바뀌는 경우가 있어 폴백 준비
     tr_candidates = [
-        "FHKUP03500100",   # 지수/업종 조회(표준)
-        "CTCA0903R",       # 일부 문서에서 쓰이는 지수조회 TR (fallback)
+        "FHKST03010100",   # ✅ 올바른 TR ID
+        "CTCA0903R",       # fallback
     ]
 
+    # ✅ 여기를 모두 소문자로 수정
     params = {
-        "FID_COND_MRKT_DIV_CODE": fid_cond_mrkt_div_code,
-        "FID_INPUT_ISCD": fid_input_iscd,
+        "fid_cond_mrkt_div_code": fid_cond_mrkt_div_code,
+        "fid_input_iscd": fid_input_iscd,
     }
 
     last_err = None
