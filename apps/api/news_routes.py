@@ -46,6 +46,21 @@ def get_news(category: str = Query("kr", pattern="^(kr|world|crypto)$"),
     finally:
         db.close()
 
+@router.get("/news/{id}")
+def get_news_detail(id: int):
+    db = SessionLocal()
+    try:
+        n = db.query(News).filter(News.id == id).first()
+        if not n:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="News not found")
+        # 조회수 증가
+        n.views += 1
+        db.commit()
+        return _to_dict(n)
+    finally:
+        db.close()
+
 @router.post("/news/view")
 def add_view(id: int = Query(..., description="뉴스 ID")):
     db = SessionLocal()
