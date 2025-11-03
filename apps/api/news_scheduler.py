@@ -8,24 +8,23 @@ logger = logging.getLogger(__name__)
 
 SOURCES = {
     "kr": [
-        "https://www.hankyung.com/feed/stock",
-        "https://www.mk.co.kr/rss/30100041/",
-        "https://www.edaily.co.kr/rss/news/stock.xml",
-        "https://biz.chosun.com/rss/stock.xml",
-        "https://www.etoday.co.kr/rss/news/economy.xml",
-        "https://www.sedaily.com/rss/Economy.xml",
-        "https://www.moneys.co.kr/rss/economy.xml",
+        # 주식·경제 전문 국내 매체
+        "https://www.hankyung.com/feed/stock",           # 한국경제 주식
+        "https://www.mk.co.kr/rss/30100041/",            # 매일경제 증권
+        "https://www.edaily.co.kr/rss/news/stock.xml",   # 이데일리 증권
+        "https://biz.chosun.com/rss/stock.xml",          # 조선비즈 증권
+        "https://www.etoday.co.kr/rss/news/economy.xml", # 이투데이 경제
+        "https://www.sedaily.com/rss/Economy.xml",       # 서울경제
+        "https://www.moneys.co.kr/rss/economy.xml",      # 머니S
     ],
     "crypto": [
-        "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "https://cointelegraph.com/rss",
-        "https://kr.investing.com/rss/news_301.rss",
-    ],
-    "world": [
-        "https://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-        "https://www.reuters.com/world/rss",
-    ],
+        # 코인니스처럼 코인 관련 국내 매체 (한글 위주)
+        "https://www.tokenpost.kr/rss",                 # 토큰포스트
+        "https://kr.investing.com/rss/news_301.rss",    # 인베스팅코리아 코인
+        "https://blockmedia.co.kr/feed",                # 블록미디어
+        "https://www.coindeskkorea.com/rss",            # 코인데스크코리아
+        "https://www.news1.kr/rss/14",                  # 뉴스1 블록체인 섹션
+    ]
 }
 
 def _first(*vals):
