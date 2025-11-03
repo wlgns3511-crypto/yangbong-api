@@ -1,6 +1,7 @@
 # apps/api/app.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 
 # ✅ 라우터 import 추가
 from .market_kr import router as kr_router
@@ -8,6 +9,7 @@ from .market_world import router as world_router         # <-- 추가
 from .market_crypto import router as crypto_router       # <-- 추가
 from .market_unified import router as unified_router     # 통합 API
 from .news_routes import router as news_router
+from .news_scheduler import run_loop
 
 app = FastAPI()
 
@@ -94,3 +96,8 @@ def kis_overseas_price(excd: str = "NAS", symb: str = "AAPL"):
                 "error": str(e), "type": type(e).__name__}
 
 app.include_router(debug)
+
+@app.on_event("startup")
+async def start_news_collector():
+    """뉴스 수집 스케줄러를 백그라운드 태스크로 시작"""
+    asyncio.create_task(run_loop())
