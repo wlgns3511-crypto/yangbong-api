@@ -9,7 +9,7 @@ import logging
 
 log = logging.getLogger("market_kr")
 
-router = APIRouter()
+router = APIRouter(prefix="/api/market", tags=["market"])
 
 YF_SYMBOLS: Dict[str, str] = {
     "KOSPI": "^KS11",
@@ -71,7 +71,6 @@ def yf_quote(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-@router.get("/market/kr", tags=["market"])
 def get_market_kr() -> Dict[str, Any]:
     ids = ["KOSPI", "KOSDAQ", "KOSPI200"]
 
@@ -140,3 +139,10 @@ def get_market_kr() -> Dict[str, Any]:
             items = [_normalize_item(k, 0, 0, 0) for k in ids]
 
     return {"ok": True, "source": "KIS" if kis_ok else "YF", "items": items}
+
+
+# ✅ /api/market/kr 엔드포인트 추가
+@router.get("/kr")
+def market_kr_endpoint() -> Dict[str, Any]:
+    """KR 시세 전용 엔드포인트: /api/market/kr"""
+    return get_market_kr()

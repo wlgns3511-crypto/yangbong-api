@@ -14,14 +14,16 @@ def _normalize_item(market_type: str, raw: dict) -> dict:
     code = raw.get("id") or raw.get("symbol") or ""
     
     if market_type == "KR":
-        # kr: id, name, close, change, pct
+        # kr: id, name, price, change, rate (market_kr.py에서 이미 정규화됨)
+        # price와 close 둘 다 지원
+        price = raw.get("price") or raw.get("close") or 0
         return {
             "market": "KR",
             "symbol": code,
             "name": raw.get("name") or code,
-            "price": float(raw.get("close") or 0),
+            "price": float(price),
             "change": float(raw.get("change") or 0),
-            "rate": float(raw.get("pct") or 0),  # 백엔드는 %로 반환
+            "rate": float(raw.get("rate") or raw.get("pct") or 0),  # 백엔드는 %로 반환
             "updatedAt": raw.get("updatedAt") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }
     elif market_type == "WORLD":
@@ -87,6 +89,7 @@ def market_unified(seg: str = Query("ALL", description="ALL|KR|US|CRYPTO"), filt
         except Exception as e:
             log.error(f"Crypto fetch error: {e}", exc_info=True)
     
-    return all_items
+    # 프론트 호환성을 위해 items 키로 반환
+    return {"items": all_items, "ok": True}
 
 
