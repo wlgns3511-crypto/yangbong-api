@@ -30,9 +30,35 @@ async def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$")):
 
         # ✅ KIS/YF 완전 제외, 네이버 1순위로 바로 응답
 
-        data = await fetch_kr_indices()
+        codes = ["KOSPI", "KOSDAQ", "KPI200"]
 
-        return data
+        name_map = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KPI200": "KOSPI200"}
+
+        data_map = fetch_kr_indices(codes)
+
+        items = []
+
+        miss = []
+
+        for code in codes:
+
+            name = name_map[code]
+
+            data = data_map.get(code, {})
+
+            if data and data.get("price", 0) > 0:
+
+                items.append({"name": name, **data})
+
+            else:
+
+                miss.append({"name": name, "status": 0, "raw": "naver_no_data"})
+
+        if not items:
+
+            return {"ok": False, "items": [], "error": "kr_no_data", "miss": miss}
+
+        return {"ok": True, "items": items, "error": None, "miss": miss}
 
     if s == "US":
 
