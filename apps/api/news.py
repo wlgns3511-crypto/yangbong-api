@@ -1,65 +1,67 @@
-# -*- coding: utf-8 -*-
+# apps/api/news.py
+import time
+import logging
+from typing import List, Dict
+
+import requests
 import feedparser
-from fastapi import APIRouter, Query
-from urllib.parse import quote
 
-router = APIRouter()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# ✅ 2025-11 기준 동작 확인한 피드들 (주식/경제 위주)
+FEEDS = [
+    "https://www.hankyung.com/feed/news",
+    "https://www.mk.co.kr/rss/stock/",                    # 매일경제 증권
+    "https://biz.chosun.com/rss.xml",                     # 조선비즈 전체
+    "https://www.edaily.co.kr/rss/stock.xml",             # 이데일리 증권
+    "https://www.etoday.co.kr/rss/section.xml?sec_no=121" # 이투데이 증권
+]
+
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 
-def _feed(url: str, limit: int, source_hint: str = ""):
-    d = feedparser.parse(url)
-    out = []
-    for e in d.entries[:limit]:
-        # Google News RSS는 언론사가 e.source.title 에 들어있음
-        pub = ""
+def _download(url: str) -> bytes:
+    try:
+        res = requests.get(url, headers=UA, timeout=10, allow_redirects=True)
+        if res.status_code == 404:
+            logger.warning(f"[RSS] 404 for {url}")
+            return b""
+        res.raise_for_status()
+        return res.content
+    except Exception as e:
+        logger.warning(f"[RSS] fetch fail {url}: {e}")
+        return b""
+
+
+def fetch_hot_news(limit_per_feed: int = 20, total_limit: int = 60) -> List[Dict]:
+    items: List[Dict] = []
+    for url in FEEDS:
+        raw = _download(url)
+        if not raw:
+            continue
         try:
-            pub = getattr(getattr(e, "source", None), "title", "") or source_hint
-        except Exception:
-            pub = source_hint
+            feed = feedparser.parse(raw)
+            entries = feed.get("entries", [])[:limit_per_feed]
+            for e in entries:
+                title = e.get("title", "").strip()
+                link = e.get("link")
+                summary = (e.get("summary") or e.get("description") or "").strip()
+                published = e.get("published") or e.get("updated")
+                items.append({
+                    "title": title,
+                    "link": link,
+                    "summary": summary,
+                    "published": published,
+                    "source": feed.get("feed", {}).get("title", ""),
+                })
+        except Exception as pe:
+            logger.warning(f"[RSS] parse fail {url}: {pe}")
+        time.sleep(0.1)  # 너무 빠른 연속요청 방지
 
-        out.append({
-            "title": getattr(e, "title", "제목 없음"),
-            "url": getattr(e, "link", "#"),
-            "source": pub,  # ← 여기만 바뀜
-            "published_at": getattr(e, "published", "") or getattr(e, "updated", ""),
-            "image": None,
-        })
-    return out
+    # 간단 정렬: 최신순(발행일 문자열이 없으면 뒤로)
+    def _key(x):
+        return x.get("published") or ""
 
-
-def get_news_kr(limit: int):
-    # 최근 12시간 한국어 경제/증시 기사 (Google News RSS)
-    q = quote("증권 OR 코스피 OR 주식 when:12h")
-    url = f"https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko"
-    return _feed(url, limit, "Google News(ko)")
-
-
-def get_news_us(limit: int):
-    # 미국 증시 키워드
-    q = quote("stock market OR nasdaq OR s&p500 when:12h")
-    url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
-    return _feed(url, limit, "Google News(en)")
-
-
-def get_news_crypto(limit: int):
-    urls = [
-        "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
-        "https://cointelegraph.com/rss",
-    ]
-    items = []
-    for u in urls:
-        items += _feed(u, limit, "Crypto")
-        if len(items) >= limit: break
-    return items[:limit]
-
-
-@router.get("/news")
-def news(type: str = Query("kr", regex="^(kr|us|crypto)$"), limit: int = 10):
-    if type == "kr":
-        data = get_news_kr(limit)
-    elif type == "us":
-        data = get_news_us(limit)
-    else:
-        data = get_news_crypto(limit)
-    return {"status": "ok", "type": type, "limit": limit, "data": data}
-
+    items.sort(key=_key, reverse=True)
+    return items[:total_limit]

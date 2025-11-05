@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 import requests
 from fastapi import APIRouter
 from .kis_client import get_index
+from .utils_yf import yf_quote as yf_quote_util
 import logging
 
 log = logging.getLogger("market_kr")
@@ -52,41 +53,6 @@ def _normalize_item(idx: str,
         "pct": rate_val,  # 기존 호환성 유지
         "updatedAt": _now_utc_iso(),
     }
-
-
-def yf_quote(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
-    """Yahoo Finance 폴백"""
-    try:
-        symbols_joined = ",".join(symbols)
-        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbols_joined}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        log.info(f"[YF] Fetching symbols: {symbols}")
-        
-        r = requests.get(url, headers=headers, timeout=5)
-        r.raise_for_status()
-        j = r.json()
-        
-        res: Dict[str, Dict[str, Any]] = {}
-        result = j.get("quoteResponse", {}).get("result", [])
-        
-        log.info(f"[YF] Got {len(result)} results")
-        
-        for item in result:
-            symbol = item.get("symbol", "")
-            price = item.get("regularMarketPrice")
-            if symbol:
-                res[symbol] = {
-                    "price": price,
-                    "change": item.get("regularMarketChange", 0),
-                    "rate": item.get("regularMarketChangePercent", 0),
-                    "ts": item.get("regularMarketTime"),
-                }
-                log.info(f"[YF] Parsed {symbol}: price={price}")
-        
-        return res
-    except Exception as e:
-        log.warning(f"[YF] Fallback failed: {e}")
-        return {}
 
 
 def get_market_kr() -> Dict[str, Any]:
@@ -140,28 +106,34 @@ def get_market_kr() -> Dict[str, Any]:
         log.info(f"[YF] KIS failed for {missing_ids}, falling back to Yahoo Finance")
         try:
             mapping = {k: YF_SYMBOLS[k] for k in missing_ids}
-            yf = yf_quote(list(mapping.values()))
-            log.info(f"[YF] Response: {list(yf.keys())}")
+            yf_results = yf_quote_util(list(mapping.values()))
+            log.info(f"[YF] Response: {list(yf_results.keys())}")
             
             for k in missing_ids:
-                q = yf.get(mapping[k], {})
-                price = q.get("price")
-                change = q.get("change", 0)
-                rate = q.get("rate", 0)
-                
-                # YF에서도 값이 0이거나 None이면 추가하지 않음 (기존값 유지)
-                if price is not None and float(price) > 0:
-                    items.append(
-                        _normalize_item(
-                            k,
-                            price,
-                            change,
-                            rate,
+                yf_symbol = mapping[k]
+                q = yf_results.get(yf_symbol)
+                if q:
+                    price = q.get("price")
+                    change_pct = q.get("change_pct", 0)
+                    # change_pct를 rate로 변환 (이미 퍼센트 값)
+                    rate = change_pct
+                    change = (price * change_pct / 100) if price and change_pct else 0
+                    
+                    # YF에서도 값이 0이거나 None이면 추가하지 않음 (기존값 유지)
+                    if price is not None and float(price) > 0:
+                        items.append(
+                            _normalize_item(
+                                k,
+                                price,
+                                change,
+                                rate,
+                            )
                         )
-                    )
-                    log.info(f"[YF] Success: {k} = {price}")
+                        log.info(f"[YF] Success: {k} = {price}")
+                    else:
+                        log.warning(f"[YF] Invalid price for {k}: {price}")
                 else:
-                    log.warning(f"[YF] Invalid price for {k}: {price}")
+                    log.warning(f"[YF] No data for {k}")
         except Exception as e:
             log.error(f"[YF] Fallback error: {e}", exc_info=True)
     
