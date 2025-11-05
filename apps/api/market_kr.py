@@ -218,8 +218,16 @@ def get_market_kr(source: str = Query("auto", description="auto|naver|yf")) -> D
 
 
 
-    order = {it["name"]: i for i, it in enumerate(IDX)}
+    # 정렬: KOSPI, KOSDAQ, KOSPI200 순서 유지
 
-    results.sort(key=lambda x: order.get(x["name"], 999))
+    order_map = {it["name"]: idx for idx, it in enumerate(IDX)}
+
+    def sort_key(item):
+
+        name = item.get("name", "")
+
+        return order_map.get(name, 999)
+
+    results.sort(key=sort_key)
 
     return {"ok": True, "items": results, "error": None, "miss": miss}

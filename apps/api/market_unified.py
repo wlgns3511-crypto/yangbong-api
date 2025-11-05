@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/market", tags=["market"])
 
 @router.get("")
 
-async def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$")):
+def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$")):
 
     s = seg.upper()
 

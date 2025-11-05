@@ -6,7 +6,6 @@ import asyncio
 # ✅ 라우터 import
 from . import market_kr, market_world, market_crypto, market_commodity
 from .market_unified import router as market_unified_router
-from .market_nav import router as nav_router
 from .news_routes import router as news_router
 from .news_scheduler import run_loop
 
@@ -26,10 +25,7 @@ app.add_middleware(
 )
 
 # ✅ 라우터 등록
-# 네이버 스크레이퍼 라우터를 가장 먼저 등록 (KR/US 우선 처리)
-app.include_router(nav_router)  # /api/market?seg=KR | /api/market?seg=US
-
-# 통합 라우터 (프론트가 쓰는 쿼리형 /api/market?seg=...)
+# 통합 라우터 (프론트가 쓰는 쿼리형 /api/market?seg=...) - 네이버 JSON API 사용
 app.include_router(market_unified_router)
 
 # 개별 라우터 (기존 경로 유지)
