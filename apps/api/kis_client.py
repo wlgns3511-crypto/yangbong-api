@@ -12,19 +12,15 @@ logger.setLevel(logging.INFO)
 KIS_BASE = os.getenv("KIS_BASE", "https://openapi.koreainvestment.com:9443")
 KIS_APP_KEY = os.getenv("KIS_APP_KEY", "")
 KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "")
-KIS_VIRTUAL = os.getenv("KIS_VIRTUAL", "0") == "1"  # 가상계좌 여부
 
-# 표준/대체 TR (지수 조회용)
-TR_IDS = [
-    "FHKST03010100",   # 지수 조회 정식 TR
-    "FHKUP03500100",   # 표준
-    "CTCA0903R",       # 대체
-]
+# ✅ 지수용 TR ID
+TR_ID_INDEX = "FHKUP03500100"
 
 _TOKEN_CACHE = {"token": None, "exp": 0}
 
 
-def _get_token() -> str:
+def get_access_token() -> str:
+    """KIS 인증 토큰 발급 및 캐싱"""
     now = int(time.time())
     if _TOKEN_CACHE["token"] and now < _TOKEN_CACHE["exp"] - 30:
         return _TOKEN_CACHE["token"]
@@ -48,16 +44,17 @@ def _get_token() -> str:
             return token
         else:
             logger.warning(f"[KIS] token response without token: {js}")
-            return None
+            return ""
     except Exception as e:
         logger.warning(f"[KIS] token error: {e}")
-        return None
+        return ""
 
 
-def _headers(tr_id: str) -> dict:
-    tok = _get_token()
-    return {
-        "authorization": f"Bearer {tok}" if tok else "",
+def kis_api(tr_id: str, params: dict):
+    """KIS API 호출 공통 함수"""
+    token = get_access_token()
+    headers = {
+        "authorization": f"Bearer {token}",
         "appkey": KIS_APP_KEY,
         "appsecret": KIS_APP_SECRET,
         "tr_id": tr_id,
@@ -65,10 +62,45 @@ def _headers(tr_id: str) -> dict:
         "Content-Type": "application/json",
     }
 
+    url = urljoin(KIS_BASE, "/uapi/domestic-stock/v1/quotations/inquire-index-price")
+    res = requests.get(url, headers=headers, params=params, timeout=5)
+    
+    if res.status_code != 200:
+        raise RuntimeError(f"KIS HTTP {res.status_code}: {res.text}")
+    
+    data = res.json()
+    return data
 
-def get_access_token() -> str:
-    """호환성을 위한 래퍼 함수"""
-    return _get_token() or ""
+
+def get_index(mrkt: str, code: str):
+    """
+    국내 지수 조회
+    mrkt: "U" (코스피/코스피200) or "J" (코스닥)
+    code: "0001" (코스피), "1001" (코스닥), "2001" (코스피200)
+    """
+    try:
+        params = {
+            "FID_COND_MRKT_DIV_CODE": mrkt,  # "U" or "J"
+            "FID_INPUT_ISCD": code,           # "0001", "1001", "2001"
+        }
+        res = kis_api(TR_ID_INDEX, params)
+
+        output = res.get("output", {})
+        if not output:
+            logger.warning(f"[KIS] output missing for {code}: {res}")
+            return None
+
+        return {
+            "name": output.get("IDX_NM", ""),
+            "price": float(output.get("BAS_PRC", 0)),
+            "change": float(output.get("CMPPREVDD_PRC", 0)),
+            "rate": float(output.get("FLUC_RT", 0)),
+            "time": output.get("BSTP_NM", ""),
+        }
+
+    except Exception as e:
+        logger.error(f"[KIS] Error for {code}: {e}")
+        return None
 
 
 def get_overseas_price(excd: str, symb: str) -> dict:
@@ -82,8 +114,16 @@ def get_overseas_price(excd: str, symb: str) -> dict:
     params = {"AUTH": "", "EXCD": excd, "SYMB": symb}
 
     try:
-        res = requests.get(url, headers=_headers("HHDFS00000300"),
-                         params=params, timeout=10)
+        token = get_access_token()
+        headers = {
+            "authorization": f"Bearer {token}",
+            "appkey": KIS_APP_KEY,
+            "appsecret": KIS_APP_SECRET,
+            "tr_id": "HHDFS00000300",
+            "custtype": "P",
+            "Content-Type": "application/json",
+        }
+        res = requests.get(url, headers=headers, params=params, timeout=10)
         res.raise_for_status()
         j = res.json()
 
@@ -118,71 +158,3 @@ def get_overseas_price(excd: str, symb: str) -> dict:
             "change": None,
             "pct": None,
         }
-
-
-def get_index(mkt: str, code: str):
-    """
-    KIS 지수 호가 조회.
-    실패(404/empty 등) 시 예외를 던지지 않고 None 반환.
-    mkt: "U"(코스피), "J"(코스닥) 등 KIS 입력에 맞게 사용 중인 값 유지
-    code: 지수 코드 ("0001", "1001", "2001" 등)
-    """
-    endpoint = "/uapi/domestic-stock/v1/quotations/inquire-index"
-    url = urljoin(KIS_BASE, endpoint)
-    # KIS API 파라미터: 소문자로 전달
-    payload = {
-        "fid_cond_mrkt_div_code": mkt,
-        "fid_input_iscd": code
-    }
-
-    last_err = None
-    for tr_id in TR_IDS:
-        try:
-            logger.info(f"[KIS] Requesting index: mkt={mkt}, code={code}, tr_id={tr_id}")
-            res = requests.get(url, headers=_headers(tr_id), params=payload, timeout=10)
-            
-            if res.status_code == 404:
-                # 종종 body가 (empty)로 옴
-                logger.warning(f"[KIS] 404 for {code} (tr_id={tr_id}) body=({res.text[:200]})")
-                last_err = "404"
-                continue
-            
-            res.raise_for_status()
-            js = res.json()
-            
-            # 응답 로깅 (디버깅용)
-            logger.debug(f"[KIS] Response for {code} (tr_id={tr_id}): {js}")
-            
-            # KIS 성공 구조에 맞춰 추출 (필드명 프로젝트에 맞게 유지)
-            output = js.get("output", {})
-            
-            # msg_cd 체크 (에러 응답 확인)
-            msg_cd = js.get("msg_cd", "")
-            if msg_cd and msg_cd != "":
-                logger.warning(f"[KIS] msg_cd present for {code} (tr_id={tr_id}): {msg_cd}, msg={js.get('msg1', '')}")
-            
-            now_prc = output.get("bstp_nmix_prpr") or output.get("prpr")
-            prdy_vrss = output.get("prdy_vrss")  # 전일 대비
-            prdy_ctrt = output.get("prdy_ctrt")  # 등락률(%)
-
-            if now_prc is None:
-                logger.warning(f"[KIS] output missing price for {code} (tr_id={tr_id}): {js}")
-                last_err = "missing_price"
-                continue
-
-            logger.info(f"[KIS] Success for {code} (tr_id={tr_id}): price={now_prc}")
-            return {
-                "output": {
-                    "bstp_nmix_prpr": str(now_prc),
-                    "prdy_vrss": str(prdy_vrss) if prdy_vrss not in (None, "") else None,
-                    "prdy_ctrt": str(prdy_ctrt) if prdy_ctrt not in (None, "") else None,
-                },
-                "source": "KIS",
-            }
-        except Exception as e:
-            last_err = e
-            logger.warning(f"[KIS] Error for {code} (tr_id={tr_id}): {e}")
-            time.sleep(0.2)
-
-    logger.warning(f"[KIS] All TRs failed for {code}: {last_err}")
-    return None
