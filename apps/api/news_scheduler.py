@@ -8,22 +8,25 @@ logger = logging.getLogger(__name__)
 
 SOURCES = {
     "kr": [
-        # 주식·경제 전문 국내 매체
-        "https://www.hankyung.com/feed/stock",           # 한국경제 주식
-        "https://www.mk.co.kr/rss/30100041/",            # 매일경제 증권
-        "https://www.edaily.co.kr/rss/news/stock.xml",   # 이데일리 증권
-        "https://biz.chosun.com/rss/stock.xml",          # 조선비즈 증권
-        "https://www.etoday.co.kr/rss/news/economy.xml", # 이투데이 경제
-        "https://www.sedaily.com/rss/Economy.xml",       # 서울경제
-        "https://www.moneys.co.kr/rss/economy.xml",      # 머니S
+        # 구글 뉴스 RSS (가장 안정적)
+        "https://news.google.com/rss/search?q=코스피+주가&hl=ko&gl=KR&ceid=KR:ko",
+        "https://news.google.com/rss/search?q=코스닥+지수&hl=ko&gl=KR&ceid=KR:ko",
+        "https://news.google.com/rss/search?q=한국증시+종합&hl=ko&gl=KR&ceid=KR:ko",
+        # 직접 RSS (리다이렉트 처리됨)
+        "https://www.hankyung.com/feed/news",           # 한국경제 (stock → news로 변경)
+        "https://www.mk.co.kr/rss/stock/",              # 매일경제 증권
+        "https://biz.chosun.com/rss.xml",               # 조선비즈 전체
+        "https://www.edaily.co.kr/rss/stock.xml",       # 이데일리 증권
+        "https://www.etoday.co.kr/rss/section.xml?sec_no=121", # 이투데이 증권
     ],
     "crypto": [
-        # 코인니스처럼 코인 관련 국내 매체 (한글 위주)
+        # 구글 뉴스 RSS
+        "https://news.google.com/rss/search?q=비트코인+가격&hl=ko&gl=KR&ceid=KR:ko",
+        "https://news.google.com/rss/search?q=가상자산+시장&hl=ko&gl=KR&ceid=KR:ko",
+        # 직접 RSS (리다이렉트 처리됨)
+        "https://www.blockmedia.co.kr/feed",            # 블록미디어 (www 추가)
+        "https://www.coindeskkorea.com/feed",           # 코인데스크코리아 (/rss → /feed)
         "https://www.tokenpost.kr/rss",                 # 토큰포스트
-        "https://kr.investing.com/rss/news_301.rss",    # 인베스팅코리아 코인
-        "https://blockmedia.co.kr/feed",                # 블록미디어
-        "https://www.coindeskkorea.com/rss",            # 코인데스크코리아
-        "https://www.news1.kr/rss/14",                  # 뉴스1 블록체인 섹션
     ]
 }
 
@@ -57,7 +60,8 @@ def _to_datetime(dt):
     return datetime.utcnow()
 
 async def fetch_feed(client, url):
-    r = await client.get(url, timeout=20)
+    # 리다이렉트 자동 처리 (httpx는 기본적으로 follow_redirects=True)
+    r = await client.get(url, timeout=20, follow_redirects=True)
     r.raise_for_status()
     parsed = feedparser.parse(r.content)
     out = []

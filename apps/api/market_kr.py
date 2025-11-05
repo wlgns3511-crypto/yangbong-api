@@ -218,7 +218,7 @@ def get_market_kr(source: str = Query("auto", description="auto|naver|yf")) -> D
 
 
 
-    order = {it["name"]: i for i in IDX}
+    order = {it["name"]: i for i, it in enumerate(IDX)}
 
     results.sort(key=lambda x: order.get(x["name"], 999))
 
