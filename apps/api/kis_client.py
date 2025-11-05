@@ -14,10 +14,11 @@ KIS_APP_KEY = os.getenv("KIS_APP_KEY", "")
 KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "")
 KIS_VIRTUAL = os.getenv("KIS_VIRTUAL", "0") == "1"  # 가상계좌 여부
 
-# 표준/대체 TR
+# 표준/대체 TR (지수 조회용)
 TR_IDS = [
-    "FHKUP03500100",  # 표준
-    "CTCA0903R",      # 대체
+    "FHKST03010100",   # 지수 조회 정식 TR
+    "FHKUP03500100",   # 표준
+    "CTCA0903R",       # 대체
 ]
 
 _TOKEN_CACHE = {"token": None, "exp": 0}
@@ -124,33 +125,52 @@ def get_index(mkt: str, code: str):
     KIS 지수 호가 조회.
     실패(404/empty 등) 시 예외를 던지지 않고 None 반환.
     mkt: "U"(코스피), "J"(코스닥) 등 KIS 입력에 맞게 사용 중인 값 유지
-    code: 지수 코드
+    code: 지수 코드 ("0001", "1001", "2001" 등)
     """
-    endpoint = "/uapi/domestic-stock/v1/quotations/inquire-index-price"
+    endpoint = "/uapi/domestic-stock/v1/quotations/inquire-index"
     url = urljoin(KIS_BASE, endpoint)
-    payload = {"FID_COND_MRKT_DIV_CODE": mkt, "FID_INPUT_ISCD": code}
+    # KIS API 파라미터: 소문자로 전달
+    payload = {
+        "fid_cond_mrkt_div_code": mkt,
+        "fid_input_iscd": code
+    }
 
     last_err = None
     for tr_id in TR_IDS:
         try:
+            logger.info(f"[KIS] Requesting index: mkt={mkt}, code={code}, tr_id={tr_id}")
             res = requests.get(url, headers=_headers(tr_id), params=payload, timeout=10)
+            
             if res.status_code == 404:
                 # 종종 body가 (empty)로 옴
-                logger.warning(f"[KIS] 404 for {code} (tr_id={tr_id}) body=({res.text})")
+                logger.warning(f"[KIS] 404 for {code} (tr_id={tr_id}) body=({res.text[:200]})")
                 last_err = "404"
                 continue
+            
             res.raise_for_status()
             js = res.json()
+            
+            # 응답 로깅 (디버깅용)
+            logger.debug(f"[KIS] Response for {code} (tr_id={tr_id}): {js}")
+            
             # KIS 성공 구조에 맞춰 추출 (필드명 프로젝트에 맞게 유지)
             output = js.get("output", {})
+            
+            # msg_cd 체크 (에러 응답 확인)
+            msg_cd = js.get("msg_cd", "")
+            if msg_cd and msg_cd != "":
+                logger.warning(f"[KIS] msg_cd present for {code} (tr_id={tr_id}): {msg_cd}, msg={js.get('msg1', '')}")
+            
             now_prc = output.get("bstp_nmix_prpr") or output.get("prpr")
             prdy_vrss = output.get("prdy_vrss")  # 전일 대비
             prdy_ctrt = output.get("prdy_ctrt")  # 등락률(%)
 
             if now_prc is None:
-                logger.warning(f"[KIS] output missing price for {code}: {js}")
-                return None
+                logger.warning(f"[KIS] output missing price for {code} (tr_id={tr_id}): {js}")
+                last_err = "missing_price"
+                continue
 
+            logger.info(f"[KIS] Success for {code} (tr_id={tr_id}): price={now_prc}")
             return {
                 "output": {
                     "bstp_nmix_prpr": str(now_prc),
@@ -161,7 +181,7 @@ def get_index(mkt: str, code: str):
             }
         except Exception as e:
             last_err = e
-            logger.warning(f"[KIS] Error for {code}: {e}")
+            logger.warning(f"[KIS] Error for {code} (tr_id={tr_id}): {e}")
             time.sleep(0.2)
 
     logger.warning(f"[KIS] All TRs failed for {code}: {last_err}")
