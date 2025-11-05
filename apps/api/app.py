@@ -7,6 +7,7 @@ import asyncio
 from .market_kr import router as kr_router
 from .market_world import router as world_router         # <-- 추가
 from .market_crypto import router as crypto_router       # <-- 추가
+from .market_commodity import router as commodity_router # <-- 추가
 from .market_unified import router as unified_router     # 통합 API
 from .news_routes import router as news_router
 from .news_scheduler import run_loop
@@ -26,9 +27,10 @@ def health():
     return {"ok": True}
 
 # ✅ 라우터 등록 (프리픽스는 각 파일 설계에 맞춰 선택)
-app.include_router(kr_router)                                # 예: prefix="/market/kr" 가 router 쪽에 있을 가능성
-app.include_router(world_router)                             # <-- 추가 (이미 prefix="/market" 포함, /world 엔드포인트)
-app.include_router(crypto_router)                            # <-- 추가 (이미 /market/crypto 전체 경로 정의됨)
+app.include_router(kr_router)                                # /api/market/kr
+app.include_router(world_router)                             # /api/market/us
+app.include_router(crypto_router)                            # /api/market/crypto
+app.include_router(commodity_router)                          # /api/market/commodity
 app.include_router(unified_router)                           # 통합 API: /api/market
 app.include_router(news_router)                              # /news
 

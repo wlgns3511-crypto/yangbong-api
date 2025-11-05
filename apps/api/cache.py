@@ -17,3 +17,10 @@ def get_cache(key: str) -> Optional[Any]:
     data, exp = v
     return data if time.time() < exp else None
 
+
+def upsert_market_data(market: str, symbol: str, **kwargs) -> None:
+    """시장 데이터 캐시 업데이트 (향후 DB 연동 대비)"""
+    # 현재는 로깅만 수행 (필요시 DB 저장 로직 추가)
+    key = f"{market}:{symbol}"
+    # 향후 DB 저장 로직 추가 예정
+    pass

@@ -1,80 +1,102 @@
-# apps/api/market_commodity.py
+"""
+⚙️ 원자재 시세 (Yahoo Finance → Stooq 폴백)
+Author: Yangbong Club
+Updated: 2025-11-05
+"""
 
-from fastapi import APIRouter, Query
-import httpx
-import csv
-import io
+import requests
+import logging
 import time
+from fastapi import APIRouter
+from typing import Dict, Any, List
+from .cache import upsert_market_data
 
-router = APIRouter()
-TTL = 60
-_cache = {"ts": 0, "data": {}}
+logger = logging.getLogger(__name__)
 
-# 표시 항목 → stooq 심볼 매핑
-# (금:XAUUSD, 은:XAGUSD 는 stooq에선 직접 심볼이 없어 대체 심볼 사용)
-MAP = {
-    "WTI": "cl.f",      # WTI 원유 선물
-    "BRENT": "br.f",    # Brent 원유 선물
-    "GOLD": "xauusd",   # 금(대체 소스: stooq JSON 미흡 시 야후로 교체 가능)
-    "SILVER": "xagusd", # 은
-    "COPPER": "hg.f",   # 구리 선물
+router = APIRouter(prefix="/api/market", tags=["market"])
+
+YF_SYMBOLS = {
+    "GOLD": "GC=F",
+    "OIL": "CL=F",
+    "COPPER": "HG=F",
+}
+
+STOOQ_SYMBOLS = {
+    "GOLD": "GC.F",
+    "OIL": "CL.F",
+    "COPPER": "HG.F",
 }
 
 
-def _stooq_single(symbol: str):
-    # 단건 CSV
-    url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
-    return url
-
-
-async def _fetch(symbol: str):
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        r = await client.get(_stooq_single(symbol))
-        r.raise_for_status()
-        txt = r.text
-        rows = list(csv.DictReader(io.StringIO(txt)))
-        return rows[0] if rows else {}
-
-
-def _norm(name: str, row: dict):
-    # row 키: Symbol, Date, Time, Open, High, Low, Close, Volume
+def get_yf_quote(symbols: list[str]) -> dict[str, float]:
+    url = "https://query1.finance.yahoo.com/v7/finance/quote"
+    qs = ",".join(symbols)
     try:
-        close = float(row.get("Close") or 0.0)
-        open_ = float(row.get("Open") or 0.0)
-    except Exception:
-        close, open_ = 0.0, 0.0
-    chg = close - open_ if open_ else 0.0
-    chg_pct = (chg / open_ * 100) if open_ else 0.0
-    return {
-        "symbol": name,
-        "name": name,
-        "price": close,
-        "change": chg,
-        "change_pct": chg_pct,
-    }
+        r = requests.get(f"{url}?symbols={qs}", timeout=5)
+        r.raise_for_status()
+        j = r.json()
+        result = {}
+        for it in j.get("quoteResponse", {}).get("result", []):
+            symbol = it.get("symbol")
+            price = it.get("regularMarketPrice")
+            if symbol and price:
+                result[symbol] = float(price)
+        logger.info(f"[YF] Got {len(result)}/{len(symbols)} quotes")
+        return result
+    except Exception as e:
+        logger.warning(f"[YF] Yahoo Finance error: {e}")
+        return {}
 
 
-@router.get("/market/commodity")
-async def market_commodity(symbols: str = Query("WTI,BRENT,GOLD,SILVER,COPPER")):
-    global _cache
-    now = time.time()
-    want = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    # MAP에 있는 심볼만 필터링
+def get_stooq_quote(symbol: str) -> float:
+    try:
+        url = f"https://stooq.com/q/l/?s={symbol}&f=l1"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200 and r.text.strip():
+            price = float(r.text.strip())
+            logger.info(f"[STOOQ] {symbol} = {price}")
+            return price
+    except Exception as e:
+        logger.warning(f"[STOOQ] Error {symbol}: {e}")
+    return 0.0
 
-    # 캐시 만료 시 갱신
-    if now - _cache["ts"] > TTL:
-        data = {}
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            for disp, sym in MAP.items():
-                try:
-                    r = await client.get(_stooq_single(sym))
-                    r.raise_for_status()
-                    rows = list(csv.DictReader(io.StringIO(r.text)))
-                    data[disp] = rows[0] if rows else {}
-                except Exception:
-                    data[disp] = {}
-        _cache = {"ts": now, "data": data}
 
-    items = [_norm(disp, _cache["data"].get(disp, {})) for disp in want if disp in MAP]
-    return {"status": "ok", "type": "commodity", "items": items, "ts": int(now)}
+def get_market_commodity() -> Dict[str, Any]:
+    """원자재 시세 (금, 유가, 구리)"""
+    results: List[Dict[str, Any]] = []
+    yf = get_yf_quote(list(YF_SYMBOLS.values()))
 
+    for name, sym in YF_SYMBOLS.items():
+        price = yf.get(sym, 0)
+        source = "YF"
+        
+        if not price or price == 0:
+            logger.info(f"[STOOQ] Falling back for {name}")
+            stooq = get_stooq_quote(STOOQ_SYMBOLS[name])
+            price = stooq
+            source = "STOOQ"
+
+        if price and price != 0:
+            result = {
+                "market": "CMD",
+                "symbol": name,
+                "name": name,
+                "price": round(price, 2),
+                "change": 0.0,
+                "rate": 0.0,
+                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "source": source,
+            }
+            results.append(result)
+            upsert_market_data("CMD", name, price=round(price, 2))
+            logger.info(f"✅ {name} ({source}) = {price}")
+        else:
+            logger.warning(f"⚠️ {name} 값 없음 (YF+Stooq 실패)")
+
+    return {"ok": True, "source": "YF" if any(yf.values()) else "STOOQ", "items": results}
+
+
+@router.get("/commodity")
+def market_commodity_endpoint() -> Dict[str, Any]:
+    """원자재 전용 엔드포인트: /api/market/commodity"""
+    return get_market_commodity()

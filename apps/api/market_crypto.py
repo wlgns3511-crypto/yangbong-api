@@ -1,70 +1,69 @@
-# apps/api/market_crypto.py
+"""
+💰 암호화폐 시세 (Coingecko)
+Author: Yangbong Club
+Updated: 2025-11-05
+"""
 
-from fastapi import APIRouter, Query
-from typing import List
-import httpx
+import requests
 import time
+import logging
+from fastapi import APIRouter
+from typing import Dict, Any, List
+from .cache import upsert_market_data
 
-router = APIRouter()
+logger = logging.getLogger(__name__)
 
-CG = "https://api.coingecko.com/api/v3/simple/price"
+router = APIRouter(prefix="/api/market", tags=["market"])
 
-# 간단 TTL 캐시 (30초)
-_cache = {"ts": 0, "data": None}
-TTL = 30
-
-# 표시 심볼 → coingecko id 매핑
-MAP = {
+COINS = {
     "BTC": "bitcoin",
     "ETH": "ethereum",
     "XRP": "ripple",
-    "SOL": "solana",
-    "BNB": "binancecoin",
 }
 
 
-async def _fetch(ids: List[str]):
-    params = {
-        "ids": ",".join(ids),
-        "vs_currencies": "usd",
-        "include_24hr_change": "true",
-    }
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        r = await client.get(CG, params=params)
+def get_crypto_prices() -> List[Dict[str, Any]]:
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {"ids": ",".join(COINS.values()), "vs_currencies": "usd"}
+    try:
+        r = requests.get(url, params=params, timeout=5)
         r.raise_for_status()
-        return r.json()
+        j = r.json()
+        logger.info(f"[CG] Got response for {len(j)} coins")
+    except Exception as e:
+        logger.error(f"[CG] Coingecko error: {e}")
+        return []
+
+    results: List[Dict[str, Any]] = []
+    for sym, cid in COINS.items():
+        price = j.get(cid, {}).get("usd")
+        if price and price > 0:
+            result = {
+                "market": "CRYPTO",
+                "symbol": sym,
+                "name": sym,
+                "price": round(price, 2),
+                "change": 0.0,
+                "rate": 0.0,
+                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "source": "Coingecko",
+            }
+            results.append(result)
+            upsert_market_data("CRYPTO", sym, price=round(price, 2))
+            logger.info(f"✅ {sym} = {price}")
+        else:
+            logger.warning(f"⚠️ {sym} 값 없음")
+
+    return results
 
 
-def _norm(symbol: str, payload: dict):
-    d = payload.get(MAP[symbol], {})
-    price = float(d.get("usd") or 0.0)
-    chg_pct = float(d.get("usd_24h_change") or 0.0)
-    # 전일 종가 기준 단순 계산 (대략치)
-    prev = price / (1 + chg_pct / 100) if price else 0.0
-    chg = price - prev
-    return {
-        "symbol": symbol,
-        "name": symbol,
-        "price": price,
-        "change": chg,
-        "change_pct": chg_pct,
-    }
+def get_market_crypto() -> Dict[str, Any]:
+    """암호화폐 시세 (비트코인, 이더리움, 리플)"""
+    items = get_crypto_prices()
+    return {"ok": True, "source": "Coingecko", "items": items}
 
 
-@router.get("/market/crypto")
-async def market_crypto(symbols: str = Query("BTC,ETH,XRP,SOL,BNB")):
-    global _cache
-    now = time.time()
-    want = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    ids = [MAP[s] for s in want if s in MAP]
-
-    if not ids:
-        return {"status": "ok", "type": "crypto", "items": []}
-
-    if now - _cache["ts"] > TTL or _cache["data"] is None:
-        payload = await _fetch(list(set(ids)))
-        _cache = {"ts": now, "data": payload}
-
-    items = [_norm(s, _cache["data"]) for s in want if s in MAP]
-    return {"status": "ok", "type": "crypto", "items": items, "ts": int(now)}
-
+@router.get("/crypto")
+def market_crypto_endpoint() -> Dict[str, Any]:
+    """암호화폐 전용 엔드포인트: /api/market/crypto"""
+    return get_market_crypto()

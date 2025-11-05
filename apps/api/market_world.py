@@ -1,97 +1,102 @@
-# apps/api/market_world.py
-from fastapi import APIRouter, Query
-from typing import List
+"""
+🌍 해외 지수 수집 (Yahoo Finance → 실패 시 Stooq 폴백)
+Author: Yangbong Club
+Updated: 2025-11-05
+"""
+
 import requests
-import csv
-import io
-import time
 import logging
-from .kis_client import get_overseas_price
+import time
+from fastapi import APIRouter
+from typing import Dict, Any, List
+from .cache import upsert_market_data
 
-router = APIRouter(prefix="/market", tags=["market"])
+logger = logging.getLogger(__name__)
 
-log = logging.getLogger("market_world")
+router = APIRouter(prefix="/api/market", tags=["market"])
 
-ETF_MAP = [
-    {"id": "DOW",  "name": "다우",     "excd": "NYS", "symb": "DIA"},
-    {"id": "IXIC", "name": "나스닥100", "excd": "NAS", "symb": "QQQ"},
-    {"id": "SPX",  "name": "S&P500",  "excd": "NYS", "symb": "SPY"},
-    # TODO: 니케이/항셍/상해/FTSE/CAC/DAX는 master 코드 보고 EXCD/SYMB 확정
-]
+YF_SYMBOLS = {
+    "DOW": "^DJI",
+    "NASDAQ": "^IXIC",
+    "S&P500": "^GSPC",
+}
 
-_cache = {"ts": 0, "data": None}
-TTL = 60
+STOOQ_SYMBOLS = {
+    "DOW": "US.DJI",
+    "NASDAQ": "US.IXIC",
+    "S&P500": "US.SP500",
+}
 
-# 기존 stooq/yahoo 백업용 (필요시 사용)
-def _stooq_batch(symbols: List[str]):
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; YangbongBot/1.0; +https://yangbong.club)"}
-    url = "https://stooq.com/q/l/?s=" + ",".join(symbols) + "&i=d"
-    r = requests.get(url, timeout=6, headers=headers)
-    r.raise_for_status()
-    out = {}
-    rd = csv.reader(io.StringIO(r.text))
-    for row in rd:
-        if not row or row[0].lower() == "symbol":
-            continue
-        sym = row[0]
-        try:
-            close = float(row[6])
-        except Exception:
-            close = None
-        out[sym.lower()] = {"close": close}
-    log.info(f"STOOQ filled {sum(1 for v in out.values() if v['close'] is not None)}/{len(symbols)}")
-    return out
 
-def _yahoo_batch(symbols: List[str]):
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; YangbongBot/1.0; +https://yangbong.club)"}
+def get_yf_quote(symbols: list[str]) -> dict[str, float]:
     url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    r = requests.get(url, params={"symbols": ",".join(symbols)}, timeout=6, headers=headers)
-    r.raise_for_status()
-    result = r.json().get("quoteResponse", {}).get("result", [])
-    out = {}
-    for item in result:
-        sym = item.get("symbol")
-        if not sym:
-            continue
-        out[sym] = {
-            "close": item.get("regularMarketPrice"),
-            "change": item.get("regularMarketChange"),
-            "pct": item.get("regularMarketChangePercent"),
-        }
-    log.info(f"YAHOO filled {len(out)}/{len(symbols)}")
-    return out
+    qs = ",".join(symbols)
+    try:
+        r = requests.get(f"{url}?symbols={qs}", timeout=5)
+        r.raise_for_status()
+        j = r.json()
+        result = {}
+        for it in j.get("quoteResponse", {}).get("result", []):
+            symbol = it.get("symbol")
+            price = it.get("regularMarketPrice")
+            if symbol and price:
+                result[symbol] = float(price)
+        logger.info(f"[YF] Got {len(result)}/{len(symbols)} quotes")
+        return result
+    except Exception as e:
+        logger.warning(f"[YF] Yahoo Finance error: {e}")
+        return {}
 
-@router.get("/world")
-def world(cache: int = Query(default=1, description="0=강제갱신")):
-    now = time.time()
-    if cache and _cache["data"] and now - _cache["ts"] < TTL:
-        return _cache["data"]
 
-    items = []
-    for m in ETF_MAP:
-        try:
-            log.info(f"Fetching overseas: {m['id']} (excd={m['excd']}, symb={m['symb']})")
-            p = get_overseas_price(m["excd"], m["symb"])
-            items.append({
-                "id": m["id"],
-                "name": m["name"],
-                "close": p["price"],
-                "change": p["change"],
-                "pct": p["pct"],
-            })
-            log.info(f"Success: {m['id']} price={p['price']}")
-        except Exception as e:
-            log.error(f"Error fetching {m['id']}: {e}", exc_info=True)
-            items.append({
-                "id": m["id"],
-                "name": m["name"],
-                "close": None,
-                "change": None,
-                "pct": None,
-                "error": str(e)
-            })
+def get_stooq_quote(symbol: str) -> float:
+    try:
+        url = f"https://stooq.com/q/l/?s={symbol}&f=l1"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200 and r.text.strip():
+            price = float(r.text.strip())
+            logger.info(f"[STOOQ] {symbol} = {price}")
+            return price
+    except Exception as e:
+        logger.warning(f"[STOOQ] Error {symbol}: {e}")
+    return 0.0
 
-    payload = {"ok": True, "source": "kis(overseas-price)", "items": items}
-    _cache["ts"] = now
-    _cache["data"] = payload
-    return payload
+
+def get_market_world() -> Dict[str, Any]:
+    """해외 지수 (다우, 나스닥, S&P500)"""
+    results: List[Dict[str, Any]] = []
+    yf = get_yf_quote(list(YF_SYMBOLS.values()))
+
+    for name, sym in YF_SYMBOLS.items():
+        price = yf.get(sym, 0)
+        source = "YF"
+        
+        if not price or price == 0:
+            logger.info(f"[STOOQ] Falling back for {name}")
+            stooq = get_stooq_quote(STOOQ_SYMBOLS[name])
+            price = stooq
+            source = "STOOQ"
+
+        if price and price != 0:
+            result = {
+                "market": "US",
+                "symbol": name,
+                "name": name,
+                "price": round(price, 2),
+                "change": 0.0,
+                "rate": 0.0,
+                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "source": source,
+            }
+            results.append(result)
+            upsert_market_data("US", name, price=round(price, 2))
+            logger.info(f"✅ {name} ({source}) = {price}")
+        else:
+            logger.warning(f"⚠️ {name} 값 없음 (YF+Stooq 실패)")
+
+    return {"ok": True, "source": "YF" if any(yf.values()) else "STOOQ", "items": results}
+
+
+@router.get("/us")
+def market_world_endpoint() -> Dict[str, Any]:
+    """해외 지수 전용 엔드포인트: /api/market/us"""
+    return get_market_world()
