@@ -1,5 +1,6 @@
 # apps/api/utils_yf.py
 import time
+import random
 import logging
 import requests
 from typing import List, Dict, Optional
@@ -72,3 +73,25 @@ def yf_quote(symbols: List[str]) -> Dict[str, Optional[dict]]:
     # 실패 시 None 유지
     return out
 
+
+def yf_quote_many(symbols: list[str], retry: int = 2):
+    """
+    Yahoo Finance 다건 조회 (리스트 반환)
+    KIS 폴백용으로 사용
+    """
+    url = "https://query1.finance.yahoo.com/v7/finance/quote"
+    params = {"symbols": ",".join(symbols)}
+    _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    
+    for i in range(retry + 1):
+        try:
+            r = requests.get(url, params=params, headers={"User-Agent": _UA}, timeout=10)
+            if r.status_code == 200:
+                return r.json().get("quoteResponse", {}).get("result", [])
+            # 429 방지 백오프
+            time.sleep((i + 1) * 0.8 + random.random() * 0.6)
+        except Exception as e:
+            logger.warning(f"[YF] quote_many error: {e}")
+            if i < retry:
+                time.sleep((i + 1) * 0.8)
+    return []

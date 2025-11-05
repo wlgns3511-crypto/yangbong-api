@@ -2,11 +2,13 @@
 
 from fastapi import APIRouter
 
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import logging
 
 from .kis_client import get_index
+
+from .utils_yf import yf_quote_many
 
 
 
@@ -16,73 +18,63 @@ log = logging.getLogger("market.kr")
 
 
 
-# ✅ 국내 지수 코드
-
 IDX = [
 
-    {"name": "KOSPI", "mrkt": "U", "code": "0001"},
+    {"name": "KOSPI",   "mrkt": "U", "code": "0001", "yf": "^KS11"},
 
-    {"name": "KOSDAQ", "mrkt": "J", "code": "1001"},
+    {"name": "KOSDAQ",  "mrkt": "J", "code": "1001", "yf": "^KQ11"},
 
-    {"name": "KOSPI200", "mrkt": "U", "code": "2001"},
+    {"name": "KOSPI200","mrkt": "U", "code": "2001", "yf": "^KS200"},
 
 ]
 
 
 
+def _parse_kis_payload(j: Dict[str, Any]) -> Dict[str, Any] | None:
 
+    out = j.get("_json", {}).get("output")
 
-def _parse_kis_payload(j: Dict[str, Any]) -> Dict[str, Any]:
+    if not out:
 
-    """
-
-    실시간 지수 데이터 구조 예시:
-
-    {
-
-      "rt_cd":"0",
-
-      "msg_cd":"OPSP00000",
-
-      "msg1":"정상처리되었습니다.",
-
-      "output":{
-
-        "bstp_nmix_prpr":"2499.53",
-
-        "bstp_nmix_prdy_vrss":"-10.35",
-
-        "bstp_nmix_prdy_ctrt":"-0.41",
-
-        "stck_bsop_date":"20251105"
-
-      }
-
-    }
-
-    """
-
-    data = j.get("_json", {}).get("output")
-
-    if not data:
-
-        raise ValueError("kis_empty")
-
-
+        return None
 
     return {
 
-        "close": float(data.get("bstp_nmix_prpr", 0.0)),
+        "price": float(out.get("bstp_nmix_prpr", 0) or 0),
 
-        "change": float(data.get("bstp_nmix_prdy_vrss", 0.0)),
+        "change": float(out.get("bstp_nmix_prdy_vrss", 0) or 0),
 
-        "change_pct": float(data.get("bstp_nmix_prdy_ctrt", 0.0)),
+        "changeRate": float(out.get("bstp_nmix_prdy_ctrt", 0) or 0),
 
-        "date": data.get("stck_bsop_date", ""),
+        "time": out.get("stck_bsop_date", ""),
 
     }
 
 
+
+def _parse_yf_rows(rows: list[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+
+    m: Dict[str, Dict[str, Any]] = {}
+
+    for r in rows:
+
+        sym = r.get("symbol")
+
+        price = r.get("regularMarketPrice")
+
+        chg = r.get("regularMarketChange")
+
+        pct = r.get("regularMarketChangePercent")
+
+        ts  = r.get("regularMarketTime")
+
+        if price is None:
+
+            continue
+
+        m[sym] = {"price": float(price), "change": float(chg or 0), "changeRate": float(pct or 0), "time": ts}
+
+    return m
 
 
 
@@ -96,57 +88,65 @@ def get_market_kr():
 
 
 
-    for it in IDX:
+    # 1) KIS 시도
 
-        name = it["name"]
+    kis_ok = False
+
+    for it in IDX:
 
         res = get_index(it["mrkt"], it["code"])
 
-
-
-        if res.get("_http") != 200 or "_json" not in res:
-
-            miss.append({"name": name, "status": res.get("_http", 0), "raw": res.get("_raw", res.get("_err", ""))})
-
-            continue
-
-
-
-        try:
+        if res.get("_http") == 200:
 
             parsed = _parse_kis_payload(res)
 
-            results.append({
+            if parsed and parsed["price"] > 0:
 
-                "name": name,
+                results.append({"name": it["name"], **parsed})
 
-                "price": parsed["close"],
+                kis_ok = True
 
-                "change": parsed["change"],
+            else:
 
-                "changeRate": parsed["change_pct"],
+                miss.append({"name": it["name"], "status": 200, "raw": "parse_err:kis_empty"})
 
-                "time": parsed["date"],
+        else:
 
-            })
+            miss.append({"name": it["name"], "status": res.get("_http", 0), "raw": res.get("_raw", "")})
 
-        except Exception as e:
 
-            miss.append({"name": name, "status": 200, "raw": f"parse_err:{e}"})
+
+    # 2) KIS 전부 실패/빈값이면 → YF 폴백
+
+    if not results:
+
+        rows = yf_quote_many([it["yf"] for it in IDX], retry=3)
+
+        yfm = _parse_yf_rows(rows)
+
+        for it in IDX:
+
+            y = yfm.get(it["yf"])
+
+            if y:
+
+                results.append({"name": it["name"], **y})
+
+            else:
+
+                miss.append({"name": it["name"], "status": 0, "raw": "yf_no_data"})
 
 
 
     if not results:
 
-        return {"data": [], "error": "kis_no_data", "miss": miss}
+        return {"data": [], "error": "kr_no_data", "miss": miss}
 
     return {"data": results, "error": None, "miss": miss}
 
 
 
-
-
-# ---------- 루트 디스패처 (404 방지용) ----------
+# /api/market 루트 디스패처 (404 방지)
 
 @router.get("")
 
@@ -170,6 +170,4 @@ def market_root(seg: str = "KR"):
 
         return {"data": [], "error": "commodity_api_not_ready"}
 
-    else:
-
-        return {"data": [], "error": f"unknown_segment:{seg}"}
+    return {"data": [], "error": f"unknown_segment:{seg}"}
