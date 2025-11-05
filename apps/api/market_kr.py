@@ -8,7 +8,7 @@ import logging
 
 from .kis_client import get_index
 
-from .utils_yf import yf_quote_many
+from .utils_yf import yf_hard_fallback
 
 
 
@@ -116,11 +116,13 @@ def get_market_kr():
 
 
 
-    # 2) KIS 전부 실패/빈값이면 → YF 폴백
+    # (2) KIS 결과가 비면 → YF (강화 버전) 폴백
 
     if not results:
 
-        rows = yf_quote_many([it["yf"] for it in IDX], retry=3)
+        symbols = [it["yf"] for it in IDX]            # ["^KS11","^KQ11","^KS200"]
+
+        rows = yf_hard_fallback(symbols)              # v7 → v7(query2) → v8 순
 
         yfm = _parse_yf_rows(rows)
 
@@ -134,7 +136,7 @@ def get_market_kr():
 
             else:
 
-                miss.append({"name": it["name"], "status": 0, "raw": "yf_no_data"})
+                miss.append({"name": it["name"], "status": 0, "raw": "yf_no_data(hard)"})
 
 
 

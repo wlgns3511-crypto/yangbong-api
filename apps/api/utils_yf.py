@@ -1,97 +1,159 @@
 # apps/api/utils_yf.py
+
 import time
+
 import random
-import logging
+
 import requests
-from typing import List, Dict, Optional
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from typing import List, Dict, Any
 
-UA_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
+
+
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+
+_H = {
+
+    "User-Agent": _UA,
+
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+
+    "Connection": "keep-alive",
+
 }
 
-YF_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
 
 
-def _extract(item) -> Optional[dict]:
-    try:
-        price = item.get("regularMarketPrice")
-        chg_pct = item.get("regularMarketChangePercent")
-        if price is None:
-            return None
-        return {
-            "price": float(price),
-            "change_pct": float(chg_pct) if chg_pct is not None else None,
-            "source": "YF",
-        }
-    except Exception as e:
-        logger.warning(f"[YF] extract error: {e}")
-        return None
+def _sleep(i: int):
+
+    time.sleep((i + 1) * 0.7 + random.random() * 0.5)
 
 
-def yf_quote(symbols: List[str]) -> Dict[str, Optional[dict]]:
-    """
-    Yahoo Finance 다건 조회. 심볼은 YF 포맷 사용 (예: ^KS11, ^IXIC, ^GSPC 등)
-    401/429 대응: UA 헤더 + 짧은 백오프.
-    """
-    out: Dict[str, Optional[dict]] = {s: None for s in symbols}
-    if not symbols:
-        return out
 
-    params = {"symbols": ",".join(symbols)}
-    for attempt in range(3):
-        try:
-            res = requests.get(YF_QUOTE_URL, params=params, headers=UA_HEADERS, timeout=10)
-            if res.status_code == 429:
-                wait = 0.8 + attempt * 0.7
-                logger.warning(f"[YF] 429 Too Many Requests. sleep {wait}s")
-                time.sleep(wait)
-                continue
-            if res.status_code == 401:
-                logger.warning("[YF] 401 Unauthorized. UA header may be blocked temporarily.")
-                time.sleep(0.5)
-                continue
+def yf_quote_many(symbols: List[str], retry: int = 2) -> List[Dict[str, Any]]:
 
-            res.raise_for_status()
-            js = res.json()
-            result = js.get("quoteResponse", {}).get("result", [])
-            by_sym = {r.get("symbol"): r for r in result}
+    """v7 quote (query1) → 실패시 query2 로 재시도"""
 
-            for s in symbols:
-                item = by_sym.get(s)
-                out[s] = _extract(item) if item else None
+    base_list = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"]
 
-            return out
-        except Exception as e:
-            logger.warning(f"[YF] request error: {e}")
-            time.sleep(0.5)
+    for host in base_list:
 
-    # 실패 시 None 유지
-    return out
+        url = f"{host}/v7/finance/quote"
 
+        params = {"symbols": ",".join(symbols)}
 
-def yf_quote_many(symbols: list[str], retry: int = 2):
-    """
-    Yahoo Finance 다건 조회 (리스트 반환)
-    KIS 폴백용으로 사용
-    """
-    url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    params = {"symbols": ",".join(symbols)}
-    _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
-    
-    for i in range(retry + 1):
-        try:
-            r = requests.get(url, params=params, headers={"User-Agent": _UA}, timeout=10)
-            if r.status_code == 200:
-                return r.json().get("quoteResponse", {}).get("result", [])
-            # 429 방지 백오프
-            time.sleep((i + 1) * 0.8 + random.random() * 0.6)
-        except Exception as e:
-            logger.warning(f"[YF] quote_many error: {e}")
-            if i < retry:
-                time.sleep((i + 1) * 0.8)
+        for i in range(retry + 1):
+
+            try:
+
+                r = requests.get(url, params=params, headers=_H, timeout=8)
+
+                if r.status_code == 200:
+
+                    res = r.json().get("quoteResponse", {}).get("result", [])
+
+                    if res:
+
+                        return res
+
+                _sleep(i)
+
+            except Exception:
+
+                _sleep(i)
+
     return []
+
+
+
+def yf_chart_one(symbol: str, retry: int = 2) -> Dict[str, Any] | None:
+
+    """v8 chart 단건 (range=1d)로 종가/변동률 근사치 얻기"""
+
+    base_list = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"]
+
+    for host in base_list:
+
+        url = f"{host}/v8/finance/chart/{symbol}"
+
+        params = {"range": "1d", "interval": "1d"}
+
+        for i in range(retry + 1):
+
+            try:
+
+                r = requests.get(url, params=params, headers=_H, timeout=8)
+
+                if r.status_code == 200:
+
+                    j = r.json()
+
+                    result = (j.get("chart", {}).get("result") or [None])[0]
+
+                    if not result:
+
+                        _sleep(i); continue
+
+                    meta = result.get("meta", {})
+
+                    close = (result.get("indicators", {}).get("quote", [{}])[0]
+
+                             .get("close") or [None])[-1]
+
+                    if close is None:
+
+                        _sleep(i); continue
+
+                    prev = meta.get("chartPreviousClose")
+
+                    chg = None if prev in (None, 0) else close - prev
+
+                    pct = None if prev in (None, 0) else (chg / prev) * 100.0
+
+                    return {
+
+                        "symbol": symbol,
+
+                        "regularMarketPrice": close,
+
+                        "regularMarketChange": chg,
+
+                        "regularMarketChangePercent": pct,
+
+                        "regularMarketTime": meta.get("regularMarketTime"),
+
+                    }
+
+                _sleep(i)
+
+            except Exception:
+
+                _sleep(i)
+
+    return None
+
+
+
+def yf_hard_fallback(symbols: List[str]) -> List[Dict[str, Any]]:
+
+    """v7이 비면 v8로 각 심볼을 순회해서라도 값 채우기"""
+
+    rows = yf_quote_many(symbols)
+
+    if rows:
+
+        return rows
+
+    out: List[Dict[str, Any]] = []
+
+    for s in symbols:
+
+        one = yf_chart_one(s)
+
+        if one:
+
+            out.append(one)
+
+    return out
