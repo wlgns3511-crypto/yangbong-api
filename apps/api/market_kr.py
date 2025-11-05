@@ -220,14 +220,16 @@ def get_market_kr(source: str = Query("auto", description="auto|naver|yf")) -> D
 
     # 정렬: KOSPI, KOSDAQ, KOSPI200 순서 유지
 
-    order_map = {it["name"]: idx for idx, it in enumerate(IDX)}
+    order = {it["name"]: idx for idx, it in enumerate(IDX)}  # {"KOSPI":0, "KOSDAQ":1, "KOSPI200":2}
 
-    def sort_key(item):
+    def _order_key(item: dict) -> int:
 
-        name = item.get("name", "")
+        # 예외 방지: name이 없거나 이상하면 맨 뒤로
 
-        return order_map.get(name, 999)
+        return order.get(item.get("name", ""), 999)
 
-    results.sort(key=sort_key)
+
+
+    results.sort(key=_order_key)
 
     return {"ok": True, "items": results, "error": None, "miss": miss}

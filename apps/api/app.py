@@ -105,6 +105,21 @@ def kis_overseas_price(excd: str = "NAS", symb: str = "AAPL"):
 
 app.include_router(debug)
 
+# --- DEBUG ROUTES (임시) ---
+from fastapi import FastAPI
+app_: FastAPI = app  # alias
+
+@app_.get("/__debug/routes")
+def _debug_routes():
+    return [
+        {"path": r.path, "name": r.name, "methods": list(r.methods or [])}
+        for r in app_.routes
+    ]
+
+@app_.get("/__debug/ping")
+def _debug_ping():
+    return {"ok": True}
+
 @app.on_event("startup")
 async def start_news_collector():
     """뉴스 수집 스케줄러를 백그라운드 태스크로 시작"""
