@@ -146,30 +146,3 @@ def get_market_kr():
 
     return {"data": results, "error": None, "miss": miss}
 
-
-
-# /api/market 루트 디스패처 (404 방지)
-
-@router.get("")
-
-def market_root(seg: str = "KR"):
-
-    seg = (seg or "KR").upper()
-
-    if seg == "KR":
-
-        return get_market_kr()
-
-    elif seg == "US":
-
-        return {"data": [], "error": "us_api_not_ready"}
-
-    elif seg in ("CRYPTO", "CRYPYO"):
-
-        return {"data": [], "error": "crypto_api_not_ready"}
-
-    elif seg in ("CMDTY", "COMMODITY"):
-
-        return {"data": [], "error": "commodity_api_not_ready"}
-
-    return {"data": [], "error": f"unknown_segment:{seg}"}

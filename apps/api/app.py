@@ -5,6 +5,7 @@ import asyncio
 
 # ✅ 라우터 import
 from . import market_kr, market_world, market_crypto, market_commodity
+from .market_unified import router as market_unified_router
 from .news_routes import router as news_router
 from .news_scheduler import run_loop
 
@@ -24,11 +25,16 @@ app.add_middleware(
 )
 
 # ✅ 라우터 등록
+# 개별 라우터(기존 경로 유지)
 app.include_router(market_kr.router, tags=["market_kr"])  # 이미 prefix="/api/market" 포함 → /api/market/kr
-# 다른 라우터들은 이미 자체 prefix를 가지고 있음
 app.include_router(market_world.router, tags=["market_world"])  # 이미 prefix="/api/market" 포함
 app.include_router(market_crypto.router, tags=["market_crypto"])  # 이미 prefix="/api/market" 포함
 app.include_router(market_commodity.router, tags=["market_commodity"])  # 이미 prefix="/api/market" 포함
+
+# ✅ 통합 라우터 (프론트가 쓰는 쿼리형)
+app.include_router(market_unified_router)
+
+# 뉴스
 app.include_router(news_router, tags=["news"])  # 이미 prefix="/api" 포함
 
 @app.get("/health")
