@@ -24,7 +24,7 @@ app.add_middleware(
 )
 
 # ✅ 라우터 등록
-app.include_router(market_kr.router, prefix="/api", tags=["market_kr"])  # /api/market/kr
+app.include_router(market_kr.router, tags=["market_kr"])  # 이미 prefix="/api/market" 포함 → /api/market/kr
 # 다른 라우터들은 이미 자체 prefix를 가지고 있음
 app.include_router(market_world.router, tags=["market_world"])  # 이미 prefix="/api/market" 포함
 app.include_router(market_crypto.router, tags=["market_crypto"])  # 이미 prefix="/api/market" 포함
@@ -67,15 +67,16 @@ def kis_test_index(code: str = "0001"):
             "token_preview": get_access_token()[:20] + "..." if get_access_token() else None,
         }
         
-        result = get_index("U", code)
+        status, result, raw = get_index("U", code)
         
         return {
-            "ok": True,
+            "ok": status == 200,
             "kis_base": KIS_BASE_URL,
             "code": code,
             "token_info": token_info,
-            "response_keys": list(result.keys()) if isinstance(result, dict) else "not dict",
-            "response_preview": str(result)[:500] if result else "empty",
+            "status_code": status,
+            "response": result,
+            "raw_preview": raw[:500] if raw else "",
         }
     except Exception as e:
         return {

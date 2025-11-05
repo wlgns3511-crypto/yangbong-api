@@ -9,7 +9,7 @@ import requests
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-KIS_BASE_URL = os.getenv("KIS_BASE", "https://openapi.koreainvestment.com:9443")
+KIS_BASE_URL = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443").rstrip("/")
 KIS_APP_KEY = os.getenv("KIS_APP_KEY", "")
 KIS_APP_SECRET = os.getenv("KIS_APP_SECRET", "")
 
@@ -84,37 +84,43 @@ def kis_api(tr_id: str, params: dict):
 
 
 def get_index(mrkt: str, code: str):
-    """국내 지수 조회 (KOSPI/KOSDAQ/KOSPI200)"""
+    """
+    국내 지수 조회 (KOSPI/KOSDAQ/KOSPI200)
+    mrkt: 'U'|'J', code: '0001'|'1001'|'2001'
+    반환: (status_code, payload_dict, raw_text)
+    """
+    token = _get_access_token()
+    url = f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-daily-indexprice"
+    
+    headers = {
+        "authorization": f"Bearer {token}",
+        "appkey": KIS_APP_KEY,
+        "appsecret": KIS_APP_SECRET,
+        "tr_id": TR_ID_INDEX,
+        "custtype": "P",
+        "accept": "application/json",
+        "content-type": "application/json",
+    }
+    
+    params = {
+        "FID_COND_MRKT_DIV_CODE": mrkt,
+        "FID_INPUT_ISCD": code,
+    }
+    
     try:
-        params = {
-            "FID_COND_MRKT_DIV_CODE": mrkt,  # "U" or "J"
-            "FID_INPUT_ISCD": code,           # "0001", "1001", "2001"
-        }
-        res = kis_api(TR_ID_INDEX, params)
-        output = res.get("output", {})
-
-        if not output:
-            logger.warning(f"[KIS] output missing for {code}: {res}")
-            return None
-
-        name = output.get("IDX_NM", "")
-        price = float(output.get("BAS_PRC", 0) or 0)
-        change = float(output.get("CMPPREVDD_PRC", 0) or 0)
-        rate = float(output.get("FLUC_RT", 0) or 0)
-
-        logger.info(f"[KIS] ✅ {name} {price:,.2f} ({'+' if change >= 0 else ''}{change:.2f}, {rate:.2f}%)")
-
-        return {
-            "name": name,
-            "price": price,
-            "change": change,
-            "rate": rate,
-            "updated": output.get("BAS_TM", ""),
-        }
-
+        r = requests.get(url, headers=headers, params=params, timeout=8)
+        txt = (r.text or "")[:300]
+        logger.warning("[KIS] GET %s %s -> %s %s", mrkt, code, r.status_code, txt)
+        
+        try:
+            data = r.json()
+        except Exception:
+            data = None
+        
+        return r.status_code, data, txt
     except Exception as e:
-        logger.error(f"[KIS] Error for {code}: {e}")
-        return None
+        logger.error(f"[KIS] Request error for {mrkt}/{code}: {e}")
+        return 0, None, str(e)
 
 
 def get_overseas_price(excd: str, symb: str) -> dict:
