@@ -6,8 +6,6 @@ from typing import List, Dict, Any
 
 import logging
 
-
-
 from .kis_client import get_index
 
 
@@ -16,21 +14,21 @@ router = APIRouter(prefix="/api/market", tags=["market"])
 
 log = logging.getLogger("market.kr")
 
-log.setLevel(logging.INFO)
 
 
-
-# KIS 지수 코드 매핑
+# ✅ 국내 지수 코드
 
 IDX = [
 
-    {"name": "KOSPI",   "mrkt": "U", "code": "0001"},
+    {"name": "KOSPI", "mrkt": "U", "code": "0001"},
 
-    {"name": "KOSDAQ",  "mrkt": "J", "code": "1001"},
+    {"name": "KOSDAQ", "mrkt": "J", "code": "1001"},
 
-    {"name": "KOSPI200","mrkt": "U", "code": "2001"},
+    {"name": "KOSPI200", "mrkt": "U", "code": "2001"},
 
 ]
+
+
 
 
 
@@ -38,53 +36,53 @@ def _parse_kis_payload(j: Dict[str, Any]) -> Dict[str, Any]:
 
     """
 
-    KIS 지수 차트 응답은 표준화가 들쑥날쑥하다.
+    실시간 지수 데이터 구조 예시:
 
-    가장 최근 봉을 선택해서, 종가/전일대비(%) 정도만 가볍게 뽑는다.
+    {
 
-    가용키 예시:
+      "rt_cd":"0",
 
-      j["_json"]["output2"] : 일자별 OHLC 리스트 (가장 마지막 요소가 가장 최근)
+      "msg_cd":"OPSP00000",
 
-      j["_json"]["output1"] : 기준일/지수명 등 메타
+      "msg1":"정상처리되었습니다.",
+
+      "output":{
+
+        "bstp_nmix_prpr":"2499.53",
+
+        "bstp_nmix_prdy_vrss":"-10.35",
+
+        "bstp_nmix_prdy_ctrt":"-0.41",
+
+        "stck_bsop_date":"20251105"
+
+      }
+
+    }
 
     """
 
-    if "_json" not in j:
+    data = j.get("_json", {}).get("output")
 
-        raise ValueError("kis_no_json")
-
-
-
-    output2 = j["_json"].get("output2") or []
-
-    if not isinstance(output2, list) or not output2:
+    if not data:
 
         raise ValueError("kis_empty")
 
 
 
-    last = output2[-1]
-
-    # 키 이름은 문서/버전에 따라 다를 수 있음 -> 보편적으로 쓰이는 후보만 안전 추출
-
-    close = last.get("stck_prpr") or last.get("cmpprevdd_prc") or last.get("prpr") or last.get("close") or ""
-
-    chg   = last.get("prdy_ctrt") or last.get("flt_rt") or last.get("rate") or ""  # %
-
-    date  = last.get("stck_bsop_date") or last.get("bas_dt") or last.get("date") or ""
-
-
-
     return {
 
-        "close": close,
+        "close": float(data.get("bstp_nmix_prpr", 0.0)),
 
-        "change_pct": chg,
+        "change": float(data.get("bstp_nmix_prdy_vrss", 0.0)),
 
-        "date": date,
+        "change_pct": float(data.get("bstp_nmix_prdy_ctrt", 0.0)),
+
+        "date": data.get("stck_bsop_date", ""),
 
     }
+
+
 
 
 
@@ -92,7 +90,7 @@ def _parse_kis_payload(j: Dict[str, Any]) -> Dict[str, Any]:
 
 def get_market_kr():
 
-    data: List[Dict[str, Any]] = []
+    results: List[Dict[str, Any]] = []
 
     miss: List[Dict[str, Any]] = []
 
@@ -118,15 +116,17 @@ def get_market_kr():
 
             parsed = _parse_kis_payload(res)
 
-            data.append({
+            results.append({
 
                 "name": name,
 
-                "close": parsed["close"],
+                "price": parsed["close"],
 
-                "change_pct": parsed["change_pct"],
+                "change": parsed["change"],
 
-                "date": parsed["date"],
+                "changeRate": parsed["change_pct"],
+
+                "time": parsed["date"],
 
             })
 
@@ -136,23 +136,17 @@ def get_market_kr():
 
 
 
-    if not data:
-
-        # 프론트가 깨지지 않도록 고정 포맷 유지
+    if not results:
 
         return {"data": [], "error": "kis_no_data", "miss": miss}
 
-
-
-    return {"data": data, "error": None, "miss": miss}
+    return {"data": results, "error": None, "miss": miss}
 
 
 
 
 
-# ---------- 루트 디스패처 (404 방지용 임시 처리) ----------
-
-
+# ---------- 루트 디스패처 (404 방지용) ----------
 
 @router.get("")
 
@@ -168,7 +162,7 @@ def market_root(seg: str = "KR"):
 
         return {"data": [], "error": "us_api_not_ready"}
 
-    elif seg in ("CRYPTO", "CRYPTO"):
+    elif seg in ("CRYPTO", "CRYPYO"):
 
         return {"data": [], "error": "crypto_api_not_ready"}
 
