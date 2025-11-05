@@ -142,7 +142,7 @@ def get_market_kr():
 
     if not results:
 
-        return {"data": [], "error": "kr_no_data", "miss": miss}
+        return {"ok": False, "items": [], "error": "kr_no_data", "miss": miss}
 
-    return {"data": results, "error": None, "miss": miss}
+    return {"ok": True, "items": results, "error": None, "miss": miss}
 

@@ -1,4 +1,4 @@
-# apps/api/market_commodity.py
+# apps/api/market_us.py
 
 import time, requests
 
@@ -6,13 +6,15 @@ import time, requests
 
 YF_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
 
-CMDTY_SYMBOLS = {
+# 한 번에 묶어서 요청 (429 회피용으로 콤마 1회 호출)
 
-    "GOLD": "GC=F",   # 금 선물
+US_SYMBOLS = {
 
-    "OIL": "CL=F",    # WTI
+    "DOW": "^DJI",
 
-    "COPPER": "HG=F", # 구리
+    "NASDAQ": "^IXIC",
+
+    "S&P500": "^GSPC",
 
 }
 
@@ -20,7 +22,7 @@ CMDTY_SYMBOLS = {
 
 _cache = {"ts": 0, "data": []}
 
-TTL = 60
+TTL = 60  # 초
 
 
 
@@ -38,7 +40,7 @@ def _yahoo_quote(symbols:list[str]):
 
 
 
-def get_cmdty():
+def get_us_indices():
 
     now = time.time()
 
@@ -48,13 +50,13 @@ def get_cmdty():
 
 
 
-    j = _yahoo_quote(list(CMDTY_SYMBOLS.values()))
+    j = _yahoo_quote(list(US_SYMBOLS.values()))
 
     result = []
 
     by_symbol = {q["symbol"]: q for q in j["quoteResponse"]["result"]}
 
-    for name, sym in CMDTY_SYMBOLS.items():
+    for name, sym in US_SYMBOLS.items():
 
         q = by_symbol.get(sym)
 
@@ -87,3 +89,4 @@ def get_cmdty():
     _cache["data"] = result
 
     return result
+

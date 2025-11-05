@@ -6,15 +6,13 @@ from fastapi import APIRouter, Query
 
 # 각 세그먼트 모듈에서 실제 핸들러 함수 import
 
-# (파일 내 함수명이 다르면 아래 호출부만 이름 맞춰 주세요.)
-
 from .market_kr import get_market_kr
 
-from .market_world import get_market_world
+from .market_us import get_us_indices
 
-from .market_crypto import get_market_crypto
+from .market_crypto import get_crypto
 
-from .market_commodity import get_market_commodity
+from .market_commodity import get_cmdty
 
 
 
@@ -30,18 +28,22 @@ def market(seg: str = Query("KR")):
 
     if s == "KR":
 
-        return get_market_kr()
+        kr_result = get_market_kr()
+
+        # get_market_kr()는 이미 items 키를 포함한 형식으로 반환
+
+        return kr_result
 
     if s == "US":
 
-        return get_market_world()
+        return {"ok": True, "source": "Yahoo", "items": get_us_indices()}
+
+    if s in ("CMDTY", "CMTDY", "CM", "COMMODITY"):  # 오타 호환
+
+        return {"ok": True, "source": "Yahoo", "items": get_cmdty()}
 
     if s in ("CRYPTO", "CRYP", "COIN"):
 
-        return get_market_crypto()
+        return {"ok": True, "source": "Coingecko", "items": get_crypto()}
 
-    if s in ("CMDTY", "CM", "COMMODITY"):
-
-        return get_market_commodity()
-
-    return {"data": [], "error": f"unknown_seg:{seg}"}
+    return {"ok": False, "items": [], "error": f"unknown_seg:{seg}"}
