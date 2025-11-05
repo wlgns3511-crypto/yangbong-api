@@ -55,39 +55,37 @@ def _normalize_item(idx: str,
 
 
 def yf_quote(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
-    """Yahoo Finance 단건 호출 폴백."""
-    url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    params = {"symbols": ",".join(symbols)}
-    log.info(f"[YF] Fetching symbols: {symbols}")
-    
+    """Yahoo Finance 폴백"""
     try:
-        res = requests.get(
-            url,
-            params=params,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=5,
-        )
-        res.raise_for_status()
-        out: Dict[str, Dict[str, Any]] = {}
-        result = res.json().get("quoteResponse", {}).get("result", [])
+        symbols_joined = ",".join(symbols)
+        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbols_joined}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        log.info(f"[YF] Fetching symbols: {symbols}")
+        
+        r = requests.get(url, headers=headers, timeout=5)
+        r.raise_for_status()
+        j = r.json()
+        
+        res: Dict[str, Dict[str, Any]] = {}
+        result = j.get("quoteResponse", {}).get("result", [])
         
         log.info(f"[YF] Got {len(result)} results")
         
-        for q in result:
-            symbol = q.get("symbol")
-            price = q.get("regularMarketPrice")
+        for item in result:
+            symbol = item.get("symbol", "")
+            price = item.get("regularMarketPrice")
             if symbol:
-                out[symbol] = {
+                res[symbol] = {
                     "price": price,
-                    "change": q.get("regularMarketChange"),
-                    "rate": q.get("regularMarketChangePercent"),
-                    "ts": q.get("regularMarketTime"),
+                    "change": item.get("regularMarketChange", 0),
+                    "rate": item.get("regularMarketChangePercent", 0),
+                    "ts": item.get("regularMarketTime"),
                 }
                 log.info(f"[YF] Parsed {symbol}: price={price}")
         
-        return out
+        return res
     except Exception as e:
-        log.error(f"[YF] Request error: {e}", exc_info=True)
+        log.warning(f"[YF] Fallback failed: {e}")
         return {}
 
 
