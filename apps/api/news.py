@@ -3,44 +3,53 @@ import time
 import logging
 from typing import List, Dict
 
-import requests
 import feedparser
+from .utils_feed import fetch_url
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# ✅ 2025-11 기준 동작 확인한 피드들 (주식/경제 위주)
-FEEDS = [
+# ✅ 최신 RSS 소스 (구글 뉴스 RSS + 직접 RSS 혼합)
+RSS_SOURCES = [
+    # 구글 뉴스 RSS (가장 안정적)
+    "https://news.google.com/rss/search?q=코스피+주가&hl=ko&gl=KR&ceid=KR:ko",
+    "https://news.google.com/rss/search?q=코스닥+지수&hl=ko&gl=KR&ceid=KR:ko",
+    "https://news.google.com/rss/search?q=한국증시+종합&hl=ko&gl=KR&ceid=KR:ko",
+    "https://news.google.com/rss/search?q=비트코인+가격&hl=ko&gl=KR&ceid=KR:ko",
+    "https://news.google.com/rss/search?q=가상자산+시장&hl=ko&gl=KR&ceid=KR:ko",
+    # 직접 RSS (변동 가능 - 실패 시 miss에 기록)
+    "https://www.blockmedia.co.kr/feed",
+    "https://www.coindeskkorea.com/feed",
     "https://www.hankyung.com/feed/news",
-    "https://www.mk.co.kr/rss/stock/",                    # 매일경제 증권
-    "https://biz.chosun.com/rss.xml",                     # 조선비즈 전체
-    "https://www.edaily.co.kr/rss/stock.xml",             # 이데일리 증권
-    "https://www.etoday.co.kr/rss/section.xml?sec_no=121" # 이투데이 증권
+    "https://www.mk.co.kr/rss/stock/",
+    "https://biz.chosun.com/rss.xml",
+    "https://www.edaily.co.kr/rss/stock.xml",
+    "https://www.etoday.co.kr/rss/section.xml?sec_no=121",
 ]
-
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 
 def _download(url: str) -> bytes:
+    """리다이렉트를 따라가며 RSS 피드 다운로드"""
     try:
-        res = requests.get(url, headers=UA, timeout=10, allow_redirects=True)
-        if res.status_code == 404:
-            logger.warning(f"[RSS] 404 for {url}")
+        sc, final_url, body = fetch_url(url, max_hops=3, timeout=8)
+        if sc != 200:
+            logger.info(f"[RSS] {sc} for {url} (final: {final_url})")
             return b""
-        res.raise_for_status()
-        return res.content
+        return body.encode('utf-8') if isinstance(body, str) else body
     except Exception as e:
         logger.warning(f"[RSS] fetch fail {url}: {e}")
         return b""
 
 
 def fetch_hot_news(limit_per_feed: int = 20, total_limit: int = 60) -> List[Dict]:
+    """RSS 피드 수집 (리다이렉트 처리 포함)"""
     items: List[Dict] = []
-    for url in FEEDS:
+    for url in RSS_SOURCES:
         raw = _download(url)
         if not raw:
             continue
         try:
+            # feedparser가 자체적으로 리다이렉트/인코딩 처리
             feed = feedparser.parse(raw)
             entries = feed.get("entries", [])[:limit_per_feed]
             for e in entries:

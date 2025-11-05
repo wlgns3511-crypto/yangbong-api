@@ -1,14 +1,22 @@
 # apps/api/market_kr.py
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-import logging
+import logging, requests
 
-from .kis_client import get_index
+from datetime import datetime
 
-from .utils_yf import yf_hard_fallback
+
+
+try:
+
+    from .utils_yf import yf_hard_fallback
+
+except Exception:
+
+    yf_hard_fallback = None
 
 
 
@@ -20,67 +28,137 @@ log = logging.getLogger("market.kr")
 
 IDX = [
 
-    {"name": "KOSPI",   "mrkt": "U", "code": "0001", "yf": "^KS11"},
+    {"name": "KOSPI",    "nav": "KOSPI",  "yf": "^KS11"},
 
-    {"name": "KOSDAQ",  "mrkt": "J", "code": "1001", "yf": "^KQ11"},
+    {"name": "KOSDAQ",   "nav": "KOSDAQ", "yf": "^KQ11"},
 
-    {"name": "KOSPI200","mrkt": "U", "code": "2001", "yf": "^KS200"},
+    {"name": "KOSPI200", "nav": "KPI200", "yf": "^KS200"},
 
 ]
 
 
 
-def _parse_kis_payload(j: Dict[str, Any]) -> Dict[str, Any] | None:
-
-    out = j.get("_json", {}).get("output")
-
-    if not out:
-
-        return None
-
-    return {
-
-        "price": float(out.get("bstp_nmix_prpr", 0) or 0),
-
-        "change": float(out.get("bstp_nmix_prdy_vrss", 0) or 0),
-
-        "changeRate": float(out.get("bstp_nmix_prdy_ctrt", 0) or 0),
-
-        "time": out.get("stck_bsop_date", ""),
-
-    }
+NAV_URL = "https://api.finance.naver.com/siseIndex/siseIndexItem.nhn"
 
 
 
-def _parse_yf_rows(rows: list[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def _to_float(x: Any) -> float:
 
-    m: Dict[str, Dict[str, Any]] = {}
+    if x is None: return 0.0
+
+    if isinstance(x, (int, float)): return float(x)
+
+    s = str(x).replace(",", "").strip()
+
+    try: return float(s)
+
+    except: return 0.0
+
+
+
+def _naver_get(code: str) -> Dict[str, Any]:
+
+    try:
+
+        r = requests.get(NAV_URL, params={"code": code}, timeout=6, allow_redirects=True, headers={
+
+            "User-Agent": "Mozilla/5.0"
+
+        })
+
+        if r.status_code != 200:
+
+            return {"_ok": False, "_stage":"naver", "_http": r.status_code, "_raw": r.text[:200]}
+
+        j = r.json() if r.text.strip().startswith("{") else {}
+
+        price = _to_float(j.get("now") or j.get("close") or j.get("price"))
+
+        change = _to_float(j.get("diff") or j.get("change"))
+
+        pct = _to_float(j.get("rate") or j.get("changeRate"))
+
+        ts = j.get("time") or j.get("date") or j.get("datetime") or None
+
+
+
+        if isinstance(ts, str) and ts:
+
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y.%m.%d %H:%M", "%Y%m%d%H%M%S", "%Y%m%d %H%M%S"):
+
+                try:
+
+                    ts = datetime.strptime(ts, fmt).isoformat()
+
+                    break
+
+                except:
+
+                    pass
+
+
+
+        if price <= 0:
+
+            return {"_ok": False, "_stage":"naver", "_http": 200, "_raw":"parse_empty"}
+
+
+
+        return {"_ok": True, "price": price, "change": change, "changeRate": pct, "time": ts}
+
+    except Exception as e:
+
+        return {"_ok": False, "_stage":"naver", "_err": f"exception:{e}"}
+
+
+
+def _yf_bulk(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+
+    if not yf_hard_fallback:
+
+        return {}
+
+    try:
+
+        rows = yf_hard_fallback(symbols)
+
+    except Exception:
+
+        rows = []
+
+    out: Dict[str, Dict[str, Any]] = {}
 
     for r in rows:
 
         sym = r.get("symbol")
 
-        price = r.get("regularMarketPrice")
+        price = _to_float(r.get("regularMarketPrice"))
 
-        chg = r.get("regularMarketChange")
-
-        pct = r.get("regularMarketChangePercent")
-
-        ts  = r.get("regularMarketTime")
-
-        if price is None:
+        if not price:
 
             continue
 
-        m[sym] = {"price": float(price), "change": float(chg or 0), "changeRate": float(pct or 0), "time": ts}
+        chg = _to_float(r.get("regularMarketChange"))
 
-    return m
+        pct = _to_float(r.get("regularMarketChangePercent"))
+
+        ts = r.get("regularMarketTime")
+
+        if isinstance(ts, (int, float)) and ts > 0:
+
+            try: ts = datetime.utcfromtimestamp(int(ts)).isoformat() + "Z"
+
+            except: pass
+
+        out[sym] = {"price": price, "change": chg, "changeRate": pct, "time": ts}
+
+    return out
 
 
 
 @router.get("/kr")
 
-def get_market_kr():
+def get_market_kr(source: str = Query("auto", description="auto|naver|yf")) -> Dict[str, Any]:
 
     results: List[Dict[str, Any]] = []
 
@@ -88,55 +166,49 @@ def get_market_kr():
 
 
 
-    # 1) KIS 시도
+    yf_map = {}
 
-    kis_ok = False
+    if source in ("auto", "yf"):
+
+        yf_map = _yf_bulk([it["yf"] for it in IDX])
+
+
 
     for it in IDX:
 
-        res = get_index(it["mrkt"], it["code"])
+        name, nav_code, yf_sym = it["name"], it["nav"], it["yf"]
 
-        if res.get("_http") == 200:
 
-            parsed = _parse_kis_payload(res)
 
-            if parsed and parsed["price"] > 0:
+        if source in ("auto", "naver"):
 
-                results.append({"name": it["name"], **parsed})
+            nav = _naver_get(nav_code)
 
-                kis_ok = True
+            if nav.get("_ok"):
+
+                results.append({"name": name, **{k:v for k,v in nav.items() if not k.startswith("_")}})
+
+                continue
 
             else:
 
-                miss.append({"name": it["name"], "status": 200, "raw": "parse_err:kis_empty"})
+                miss.append({"name": name, "stage":"naver", "detail": {k: nav.get(k) for k in ("_http","_raw","_err")}})
+
+                if source == "naver":
+
+                    continue
+
+
+
+        y = yf_map.get(yf_sym)
+
+        if y:
+
+            results.append({"name": name, **y})
 
         else:
 
-            miss.append({"name": it["name"], "status": res.get("_http", 0), "raw": res.get("_raw", "")})
-
-
-
-    # (2) KIS 결과가 비면 → YF (강화 버전) 폴백
-
-    if not results:
-
-        symbols = [it["yf"] for it in IDX]            # ["^KS11","^KQ11","^KS200"]
-
-        rows = yf_hard_fallback(symbols)              # v7 → v7(query2) → v8 순
-
-        yfm = _parse_yf_rows(rows)
-
-        for it in IDX:
-
-            y = yfm.get(it["yf"])
-
-            if y:
-
-                results.append({"name": it["name"], **y})
-
-            else:
-
-                miss.append({"name": it["name"], "status": 0, "raw": "yf_no_data(hard)"})
+            miss.append({"name": name, "stage":"yf", "detail":"no_data"})
 
 
 
@@ -144,5 +216,10 @@ def get_market_kr():
 
         return {"ok": False, "items": [], "error": "kr_no_data", "miss": miss}
 
-    return {"ok": True, "items": results, "error": None, "miss": miss}
 
+
+    order = {it["name"]: i for i in IDX}
+
+    results.sort(key=lambda x: order.get(x["name"], 999))
+
+    return {"ok": True, "items": results, "error": None, "miss": miss}
