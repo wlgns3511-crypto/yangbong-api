@@ -1,33 +1,34 @@
 # apps/api/market_kr.py
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from .kis_client import get_index
 import logging
 
-router = APIRouter(prefix="/api/market", tags=["market"])
+router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/kr")
-def get_market_kr(seg: str = Query("KR", description="세그먼트 (KR만 지원)")):
-    """국내 지수 조회: KOSPI, KOSDAQ, KOSPI200"""
-    if seg != "KR":
-        return {"error": "invalid seg", "data": []}
-
+@router.get("/market/kr")
+def get_market_kr():
+    """국내 지수 API (KOSPI, KOSDAQ, KOSPI200)"""
     data = []
 
-    # ✅ KOSPI
+    # ✅ 코스피
     kospi = get_index("U", "0001")
     if kospi:
         data.append({**kospi, "symbol": "KOSPI"})
 
-    # ✅ KOSDAQ
+    # ✅ 코스닥
     kosdaq = get_index("J", "1001")
     if kosdaq:
         data.append({**kosdaq, "symbol": "KOSDAQ"})
 
-    # ✅ KOSPI200
+    # ✅ 코스피200
     kospi200 = get_index("U", "2001")
     if kospi200:
         data.append({**kospi200, "symbol": "KOSPI200"})
 
-    return {"ok": True, "data": data, "items": data}  # 호환성 유지
+    if not data:
+        logger.warning("[KIS] 국내 지수 전부 조회 실패")
+        return {"data": [], "error": "no data"}
+
+    return {"data": data}
