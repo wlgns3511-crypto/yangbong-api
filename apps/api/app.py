@@ -5,10 +5,10 @@ import asyncio
 
 # ✅ 라우터 import 추가
 from .market_kr import router as kr_router
-from .market_world import router as world_router         # <-- 추가
-from .market_crypto import router as crypto_router       # <-- 추가
-from .market_commodity import router as commodity_router # <-- 추가
-from .market_unified import router as unified_router     # 통합 API
+from .market_world import router as world_router
+from .market_crypto import router as crypto_router
+from .market_commodity import router as commodity_router
+from .market import router as market_router  # 통합 엔드포인트 (market_unified 대체)
 from .news_routes import router as news_router
 from .news_scheduler import run_loop
 
@@ -31,7 +31,7 @@ app.include_router(kr_router)                                # /api/market/kr
 app.include_router(world_router)                             # /api/market/us
 app.include_router(crypto_router)                            # /api/market/crypto
 app.include_router(commodity_router)                          # /api/market/commodity
-app.include_router(unified_router)                           # 통합 API: /api/market
+app.include_router(market_router)                            # 통합 API: /api/market (우선순위 높음)
 app.include_router(news_router)                              # /news
 
 import httpx
