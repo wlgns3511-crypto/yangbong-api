@@ -157,3 +157,31 @@ def yf_hard_fallback(symbols: List[str]) -> List[Dict[str, Any]]:
             out.append(one)
 
     return out
+
+
+def yf_quote(symbols: list[str]) -> list[dict]:
+    """Yahoo Finance Quote API 간단 버전 (의존성 없음)"""
+    if not symbols:
+        return []
+    YF_QUOTE = "https://query1.finance.yahoo.com/v7/finance/quote"
+    q = ",".join(symbols)
+    r = requests.get(YF_QUOTE, params={"symbols": q}, headers=_H, timeout=8)
+    r.raise_for_status()
+    data = r.json().get("quoteResponse", {}).get("result", [])
+    items = []
+    now = int(time.time())
+    for x in data:
+        price = x.get("regularMarketPrice")
+        change = x.get("regularMarketChange")
+        rate  = x.get("regularMarketChangePercent")
+        if price is None:
+            continue
+        items.append({
+            "symbol": x.get("symbol"),
+            "name":   x.get("shortName") or x.get("symbol"),
+            "price":  float(price),
+            "change": float(change or 0),
+            "changeRate": float(rate or 0),
+            "time": now
+        })
+    return items

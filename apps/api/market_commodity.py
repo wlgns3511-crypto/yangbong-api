@@ -1,89 +1,45 @@
 # apps/api/market_commodity.py
 
-import time, requests
+from fastapi import APIRouter, Query
+
+from .utils_yf import yf_quote
 
 
 
-YF_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
-
-CMDTY_SYMBOLS = {
-
-    "GOLD": "GC=F",   # 금 선물
-
-    "OIL": "CL=F",    # WTI
-
-    "COPPER": "HG=F", # 구리
-
-}
+router = APIRouter(prefix="/api", tags=["market_commodity"])
 
 
 
-_cache = {"ts": 0, "data": []}
+CMDTY_SYMBOLS = [
 
-TTL = 60
+    {"name": "금",    "symbol": "GC=F"},
 
+    {"name": "은",    "symbol": "SI=F"},
 
+    {"name": "WTI",  "symbol": "CL=F"},
 
-def _yahoo_quote(symbols:list[str]):
+    {"name": "브렌트","symbol": "BZ=F"},  # 또는 CO=F
 
-    params = {"symbols": ",".join(symbols)}
-
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    r = requests.get(YF_URL, params=params, headers=headers, timeout=10)
-
-    r.raise_for_status()
-
-    return r.json()
+]
 
 
 
-def get_cmdty():
+@router.get("/market")
 
-    now = time.time()
+def get_cmdty(seg: str = Query("", alias="seg")):
 
-    if now - _cache["ts"] < TTL and _cache["data"]:
+    if seg.upper() != "CMDTY":
 
-        return _cache["data"]
+        return {"ok": False, "error": "bad_seg"}
 
+    symbols = [x["symbol"] for x in CMDTY_SYMBOLS]
 
+    items = yf_quote(symbols)
 
-    j = _yahoo_quote(list(CMDTY_SYMBOLS.values()))
+    name_by_symbol = {x["symbol"]: x["name"] for x in CMDTY_SYMBOLS}
 
-    result = []
+    for it in items:
 
-    by_symbol = {q["symbol"]: q for q in j["quoteResponse"]["result"]}
+        it["name"] = name_by_symbol.get(it["symbol"], it.get("name", it["symbol"]))
 
-    for name, sym in CMDTY_SYMBOLS.items():
-
-        q = by_symbol.get(sym)
-
-        if not q: 
-
-            continue
-
-        price = q.get("regularMarketPrice")
-
-        change = q.get("regularMarketChange")
-
-        change_rate = q.get("regularMarketChangePercent")
-
-        result.append({
-
-            "name": name,
-
-            "price": float(price) if price is not None else None,
-
-            "change": float(change) if change is not None else None,
-
-            "changeRate": float(change_rate) if change_rate is not None else None,
-
-            "time": q.get("regularMarketTime")
-
-        })
-
-    _cache["ts"] = now
-
-    _cache["data"] = result
-
-    return result
+    return {"ok": True, "source": "YF", "items": items}

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query
 
 from .market_kr import get_market_kr
 
-from .market_us import get_us_indices
+from .market_world import get_world
 
 from .market_crypto import get_crypto
 
@@ -36,14 +36,20 @@ def market(seg: str = Query("KR")):
 
     if s == "US":
 
-        return {"ok": True, "source": "Yahoo", "items": get_us_indices()}
+        # get_world는 seg 파라미터를 받지만 여기서는 직접 호출하지 않고
+
+        # market_world.py의 router에서 처리하도록 함
+
+        # 하지만 통합 라우터에서 직접 처리하려면 아래처럼 호출
+
+        return get_world(seg="US")
 
     if s in ("CMDTY", "CMTDY", "CM", "COMMODITY"):  # 오타 호환
 
-        return {"ok": True, "source": "Yahoo", "items": get_cmdty()}
+        return get_cmdty(seg="CMDTY")
 
     if s in ("CRYPTO", "CRYP", "COIN"):
 
-        return {"ok": True, "source": "Coingecko", "items": get_crypto()}
+        return get_crypto(seg="CRYPTO")
 
     return {"ok": False, "items": [], "error": f"unknown_seg:{seg}"}

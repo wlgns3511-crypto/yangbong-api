@@ -25,14 +25,14 @@ app.add_middleware(
 )
 
 # ✅ 라우터 등록
-# 개별 라우터(기존 경로 유지)
-app.include_router(market_kr.router, tags=["market_kr"])  # 이미 prefix="/api/market" 포함 → /api/market/kr
-app.include_router(market_world.router, tags=["market_world"])  # 이미 prefix="/api/market" 포함
-app.include_router(market_crypto.router, tags=["market_crypto"])  # 이미 prefix="/api/market" 포함
-app.include_router(market_commodity.router, tags=["market_commodity"])  # 이미 prefix="/api/market" 포함
-
-# ✅ 통합 라우터 (프론트가 쓰는 쿼리형)
+# 통합 라우터를 먼저 등록 (프론트가 쓰는 쿼리형 /api/market?seg=...)
 app.include_router(market_unified_router)
+
+# 개별 라우터 (기존 경로 유지)
+app.include_router(market_kr.router, tags=["market_kr"])  # 이미 prefix="/api/market" 포함 → /api/market/kr
+app.include_router(market_world.router, tags=["market_world"])  # prefix="/api" → /api/market?seg=US
+app.include_router(market_crypto.router, tags=["market_crypto"])  # prefix="/api" → /api/market?seg=CRYPTO
+app.include_router(market_commodity.router, tags=["market_commodity"])  # prefix="/api" → /api/market?seg=CMDTY
 
 # 뉴스
 app.include_router(news_router, tags=["news"])  # 이미 prefix="/api" 포함

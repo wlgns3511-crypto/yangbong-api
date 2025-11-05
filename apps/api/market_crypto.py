@@ -2,88 +2,78 @@
 
 import time, requests
 
-
-
-CG_URL = "https://api.coingecko.com/api/v3/simple/price"
-
-IDS = {
-
-    "BTC": "bitcoin",
-
-    "ETH": "ethereum",
-
-    "XRP": "ripple",
-
-    "SOL": "solana",
-
-}
-
-_cache = {"ts": 0, "data": []}
-
-TTL = 60
+from fastapi import APIRouter, Query
 
 
 
-def get_crypto():
-
-    now = time.time()
-
-    if now - _cache["ts"] < TTL and _cache["data"]:
-
-        return _cache["data"]
+router = APIRouter(prefix="/api", tags=["market_crypto"])
 
 
 
-    params = {
+CG_IDS = [
 
-        "ids": ",".join(IDS.values()),
+    {"name": "BTC", "id": "bitcoin"},
 
-        "vs_currencies": "usd,krw",
+    {"name": "ETH", "id": "ethereum"},
 
-        "include_24hr_change": "true"
+    {"name": "XRP", "id": "ripple"},
 
-    }
+    {"name": "SOL", "id": "solana"},
 
-    headers = {"User-Agent": "Mozilla/5.0"}
+    {"name": "BNB", "id": "binancecoin"},
 
-    r = requests.get(CG_URL, params=params, headers=headers, timeout=10)
+]
+
+
+
+@router.get("/market")
+
+def get_crypto(seg: str = Query("", alias="seg")):
+
+    if seg.upper() != "CRYPTO":
+
+        return {"ok": False, "error": "bad_seg"}
+
+    ids = ",".join(x["id"] for x in CG_IDS)
+
+    url = "https://api.coingecko.com/api/v3/simple/price"
+
+    r = requests.get(url, params={"ids": ids, "vs_currencies": "usd", "include_24hr_change": "true"}, timeout=8)
 
     r.raise_for_status()
 
-    j = r.json()
+    data = r.json()
 
+    now = int(time.time())
 
+    items = []
 
-    result = []
+    for x in CG_IDS:
 
-    inv = {v:k for k,v in IDS.items()}
+        row = data.get(x["id"])
 
-    for cg_id, obj in j.items():
+        if not row: 
 
-        sym = inv.get(cg_id, cg_id).upper()
+            continue
 
-        # 기본은 KRW 기준으로 보여주고 싶으면 krw 사용
+        price = row.get("usd")
 
-        price = obj.get("krw")
+        chg   = row.get("usd_24h_change", 0)
 
-        change_rate = obj.get("krw_24h_change")
+        items.append({
 
-        result.append({
+            "symbol": x["name"],
 
-            "name": sym,
+            "name": x["name"],
 
-            "price": float(price) if price is not None else None,
+            "price": float(price),
 
-            "change": None,
+            "change": 0.0,
 
-            "changeRate": float(change_rate) if change_rate is not None else None,
+            "changeRate": float(chg),
 
-            "time": int(time.time())
+            "time": now
 
         })
 
-    _cache["ts"] = now
-
-    _cache["data"] = result
-
-    return result
+    return {"ok": True, "source": "Coingecko", "items": items}
