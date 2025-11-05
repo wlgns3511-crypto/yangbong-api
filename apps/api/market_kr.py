@@ -24,6 +24,13 @@ CODES = {
     "KOSPI200": "2001",
 }
 
+# KIS API 지수 코드 매핑 (FID_COND_MRKT_DIV_CODE, FID_INPUT_ISCD)
+KIS_INDEX_MAP = {
+    "KOSPI": ("U", "0001"),      # 코스피지수: U + 0001
+    "KOSDAQ": ("J", "1001"),     # 코스닥지수: J + 1001 (중요!)
+    "KOSPI200": ("U", "2001"),   # 코스피200: U + 2001
+}
+
 def _now_utc_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -63,10 +70,19 @@ def get_market_kr() -> Dict[str, Any]:
     # 1) KIS 우선 시도 (각 지수별로 개별 처리)
     kis_data: Dict[str, Dict[str, Any]] = {}
     
-    for name, code in CODES.items():
+    for name in ids:
+        if name not in KIS_INDEX_MAP:
+            log.warning(f"[KIS] Unknown index: {name}")
+            continue
+        
+        mkt_div, code = KIS_INDEX_MAP[name]
         try:
-            log.info(f"[KIS] Fetching index: {name} (code={code})")
-            res = get_index("U", code)
+            log.info(f"[KIS] Fetching index: {name} (mkt={mkt_div}, code={code})")
+            res = get_index(mkt_div, code)
+            if res is None:
+                log.warning(f"[KIS] get_index returned None for {name}")
+                continue
+            
             output = res.get("output", {})
             if output:
                 price = output.get("bstp_nmix_prpr")
