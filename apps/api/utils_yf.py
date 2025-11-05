@@ -165,23 +165,29 @@ def yf_quote(symbols: list[str]) -> list[dict]:
         return []
     YF_QUOTE = "https://query1.finance.yahoo.com/v7/finance/quote"
     q = ",".join(symbols)
-    r = requests.get(YF_QUOTE, params={"symbols": q}, headers=_H, timeout=8)
-    r.raise_for_status()
-    data = r.json().get("quoteResponse", {}).get("result", [])
-    items = []
-    now = int(time.time())
-    for x in data:
-        price = x.get("regularMarketPrice")
-        change = x.get("regularMarketChange")
-        rate  = x.get("regularMarketChangePercent")
-        if price is None:
-            continue
-        items.append({
-            "symbol": x.get("symbol"),
-            "name":   x.get("shortName") or x.get("symbol"),
-            "price":  float(price),
-            "change": float(change or 0),
-            "changeRate": float(rate or 0),
-            "time": now
-        })
-    return items
+    try:
+        r = requests.get(YF_QUOTE, params={"symbols": q}, headers=_H, timeout=8)
+        if r.status_code != 200:
+            # 401/403 등은 빈 배열 반환 (에러 로깅 없이 조용히 실패)
+            return []
+        data = r.json().get("quoteResponse", {}).get("result", [])
+        items = []
+        now = int(time.time())
+        for x in data:
+            price = x.get("regularMarketPrice")
+            change = x.get("regularMarketChange")
+            rate  = x.get("regularMarketChangePercent")
+            if price is None:
+                continue
+            items.append({
+                "symbol": x.get("symbol"),
+                "name":   x.get("shortName") or x.get("symbol"),
+                "price":  float(price),
+                "change": float(change or 0),
+                "changeRate": float(rate or 0),
+                "time": now
+            })
+        return items
+    except Exception:
+        # 모든 예외는 조용히 빈 배열 반환
+        return []

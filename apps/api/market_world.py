@@ -46,7 +46,13 @@ def get_world(seg: str = Query("", alias="seg")):
 
     symbols = [x["symbol"] for x in WORLD_SYMBOLS]
 
-    items = yf_quote(symbols)
+    try:
+
+        items = yf_quote(symbols)
+
+    except Exception:
+
+        items = []
 
     # 이름 매핑 덮어쓰기
 
@@ -55,5 +61,9 @@ def get_world(seg: str = Query("", alias="seg")):
     for it in items:
 
         it["name"] = name_by_symbol.get(it["symbol"], it.get("name", it["symbol"]))
+
+    if not items:
+
+        return {"ok": False, "items": [], "error": "yf_no_data", "source": "YF"}
 
     return {"ok": True, "source": "YF", "items": items}
