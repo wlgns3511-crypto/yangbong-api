@@ -2,17 +2,15 @@
 
 from fastapi import APIRouter, Query
 
-from apps.api.naver_indices import fetch_kr_indices   # ← 새로 추가
+from .market_common import get_cache, set_cache, normalize_item
 
-
-
-# 각 세그먼트 모듈에서 실제 핸들러 함수 import
-
-from .market_world import get_world
+from .market_world import _get_world_logic
 
 from .market_crypto import get_crypto
 
 from .market_commodity import get_cmdty
+
+from apps.api.naver_indices import fetch_kr_indices   # ← 새로 추가
 
 
 
@@ -22,13 +20,23 @@ router = APIRouter(prefix="/api/market", tags=["market"])
 
 @router.get("")
 
-def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$")):
+def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Query(1)):
 
     s = seg.upper()
 
     if s == "KR":
 
-        # ✅ KIS/YF 완전 제외, 네이버 1순위로 바로 응답
+        # 캐시 확인
+
+        cached, fresh = get_cache(s)
+
+        if cache and cached:
+
+            return {"ok": True, "items": cached, "stale": not fresh, "source": "cache"}
+
+
+
+        # 네이버에서 데이터 가져오기
 
         codes = ["KOSPI", "KOSDAQ", "KPI200"]
 
@@ -38,7 +46,9 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$")):
 
         items = []
 
-        miss = []
+        errors = []
+
+
 
         for code in codes:
 
@@ -48,34 +58,56 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$")):
 
             if data and data.get("price", 0) > 0:
 
-                items.append({"name": name, **data})
+                items.append({"name": name, "symbol": name, **data})
 
             else:
 
-                miss.append({"name": name, "status": 0, "raw": "naver_no_data"})
+                errors.append(f"{name}:naver_no_data")
 
-        if not items:
 
-            return {"ok": False, "items": [], "error": "kr_no_data", "miss": miss}
 
-        return {"ok": True, "items": items, "error": None, "miss": miss}
+        if items:
+
+            # 정규화 후 캐시 저장
+
+            normalized_items = [normalize_item(it) for it in items]
+
+            set_cache(s, normalized_items)
+
+            return {"ok": True, "items": normalized_items, "stale": False, "source": "naver"}
+
+
+
+        # 공급자 실패 → 캐시라도 성공 처리
+
+        if cached:
+
+            return {"ok": True, "items": cached, "stale": True, "source": "cache", "error": ";".join(errors) or "provider_fail"}
+
+
+
+        return {"ok": False, "items": [], "error": "kr_no_data", "miss": errors}
+
+
 
     if s == "US":
 
-        # get_world는 seg 파라미터를 받지만 여기서는 직접 호출하지 않고
+        # US 시장 데이터 가져오기 (캐시 로직 포함)
 
-        # market_world.py의 router에서 처리하도록 함
+        return _get_world_logic(seg="US", cache=cache)
 
-        # 하지만 통합 라우터에서 직접 처리하려면 아래처럼 호출
 
-        return get_world(seg="US")
 
     if s in ("CMDTY", "CMTDY", "CM", "COMMODITY"):  # 오타 호환
 
         return get_cmdty(seg="CMDTY")
 
+
+
     if s in ("CRYPTO", "CRYP", "COIN"):
 
         return get_crypto(seg="CRYPTO")
+
+
 
     return {"ok": False, "items": [], "error": f"unknown_seg:{seg}"}

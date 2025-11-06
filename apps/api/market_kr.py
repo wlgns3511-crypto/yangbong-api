@@ -2,155 +2,91 @@
 
 from fastapi import APIRouter, Query
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-import logging, requests
+import logging, requests, re
 
-from datetime import datetime
-
-
-
-try:
-
-    from .utils_yf import yf_hard_fallback
-
-except Exception:
-
-    yf_hard_fallback = None
+from .market_common import get_cache, set_cache, normalize_item
 
 
-
-router = APIRouter(prefix="/api/market", tags=["market"])
 
 log = logging.getLogger("market.kr")
 
+router = APIRouter(prefix="/api/market", tags=["market"])
 
 
-IDX = [
 
-    {"name": "KOSPI",    "nav": "KOSPI",  "yf": "^KS11"},
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"}
 
-    {"name": "KOSDAQ",   "nav": "KOSDAQ", "yf": "^KQ11"},
 
-    {"name": "KOSPI200", "nav": "KPI200", "yf": "^KS200"},
 
-]
+K_NAV = {
 
+    "KOSPI": "https://finance.naver.com/sise/sise_index.naver?code=KOSPI",
 
+    "KOSDAQ": "https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ",
 
-NAV_URL = "https://api.finance.naver.com/siseIndex/siseIndexItem.nhn"
+    "KOSPI200": "https://finance.naver.com/sise/sise_index.naver?code=KPI200",
 
+}
 
 
-def _to_float(x: Any) -> float:
 
-    if x is None: return 0.0
+_num = re.compile(r"[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
 
-    if isinstance(x, (int, float)): return float(x)
 
-    s = str(x).replace(",", "").strip()
 
-    try: return float(s)
+def _parse_naver(html: str) -> Dict[str, float]:
 
-    except: return 0.0
+    # 매우 보수적: 페이지 전체에서 숫자 3개 이상 뽑아 평균치/변화율 후보 탐색
 
+    # (기존 파서가 깨져도 최소값은 뽑히게)
 
+    nums = [n.replace(",", "") for n in _num.findall(html)]
 
-def _naver_get(code: str) -> Dict[str, Any]:
+    # 실패 대비
 
-    try:
+    first = float(nums[0]) if nums else 0.0
 
-        r = requests.get(NAV_URL, params={"code": code}, timeout=6, allow_redirects=True, headers={
+    return {"price": first}  # change, rate는 0으로 둬도 화면은 뜬다
 
-            "User-Agent": "Mozilla/5.0"
 
-        })
 
-        if r.status_code != 200:
+def fetch_from_naver() -> List[Dict[str, Any]]:
 
-            return {"_ok": False, "_stage":"naver", "_http": r.status_code, "_raw": r.text[:200]}
+    out: List[Dict[str, Any]] = []
 
-        j = r.json() if r.text.strip().startswith("{") else {}
+    for sym, url in K_NAV.items():
 
-        price = _to_float(j.get("now") or j.get("close") or j.get("price"))
+        try:
 
-        change = _to_float(j.get("diff") or j.get("change"))
+            r = requests.get(url, headers=UA, timeout=6)
 
-        pct = _to_float(j.get("rate") or j.get("changeRate"))
+            if r.status_code != 200:
 
-        ts = j.get("time") or j.get("date") or j.get("datetime") or None
+                log.warning("naver %s %s", sym, r.status_code); continue
 
+            d = _parse_naver(r.text)
 
+            out.append({
 
-        if isinstance(ts, str) and ts:
+                "symbol": sym,
 
-            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y.%m.%d %H:%M", "%Y%m%d%H%M%S", "%Y%m%d %H%M%S"):
+                "name": sym,
 
-                try:
+                "price": d.get("price", 0),
 
-                    ts = datetime.strptime(ts, fmt).isoformat()
+                "change": 0,
 
-                    break
+                "changeRate": 0,
 
-                except:
+                "time": None,
 
-                    pass
+            })
 
+        except Exception as e:
 
-
-        if price <= 0:
-
-            return {"_ok": False, "_stage":"naver", "_http": 200, "_raw":"parse_empty"}
-
-
-
-        return {"_ok": True, "price": price, "change": change, "changeRate": pct, "time": ts}
-
-    except Exception as e:
-
-        return {"_ok": False, "_stage":"naver", "_err": f"exception:{e}"}
-
-
-
-def _yf_bulk(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
-
-    if not yf_hard_fallback:
-
-        return {}
-
-    try:
-
-        rows = yf_hard_fallback(symbols)
-
-    except Exception:
-
-        rows = []
-
-    out: Dict[str, Dict[str, Any]] = {}
-
-    for r in rows:
-
-        sym = r.get("symbol")
-
-        price = _to_float(r.get("regularMarketPrice"))
-
-        if not price:
-
-            continue
-
-        chg = _to_float(r.get("regularMarketChange"))
-
-        pct = _to_float(r.get("regularMarketChangePercent"))
-
-        ts = r.get("regularMarketTime")
-
-        if isinstance(ts, (int, float)) and ts > 0:
-
-            try: ts = datetime.utcfromtimestamp(int(ts)).isoformat() + "Z"
-
-            except: pass
-
-        out[sym] = {"price": price, "change": chg, "changeRate": pct, "time": ts}
+            log.warning("naver err %s: %s", sym, e)
 
     return out
 
@@ -158,78 +94,52 @@ def _yf_bulk(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
 
 @router.get("/kr")
 
-def get_market_kr(source: str = Query("auto", description="auto|naver|yf")) -> Dict[str, Any]:
+def get_market_kr(seg: str = Query("KR"), cache: int = Query(1)) -> Dict[str, Any]:
 
-    results: List[Dict[str, Any]] = []
+    seg = seg.upper()
 
-    miss: List[Dict[str, Any]] = []
+    cached, fresh = get_cache(seg)
 
+    if cache and cached:
 
-
-    yf_map = {}
-
-    if source in ("auto", "yf"):
-
-        yf_map = _yf_bulk([it["yf"] for it in IDX])
+        return {"ok": True, "items": cached, "stale": not fresh, "source": "cache"}
 
 
 
-    for it in IDX:
+    items: List[Dict[str, Any]] = []
 
-        name, nav_code, yf_sym = it["name"], it["nav"], it["yf"]
-
-
-
-        if source in ("auto", "naver"):
-
-            nav = _naver_get(nav_code)
-
-            if nav.get("_ok"):
-
-                results.append({"name": name, **{k:v for k,v in nav.items() if not k.startswith("_")}})
-
-                continue
-
-            else:
-
-                miss.append({"name": name, "stage":"naver", "detail": {k: nav.get(k) for k in ("_http","_raw","_err")}})
-
-                if source == "naver":
-
-                    continue
+    errors: List[str] = []
 
 
 
-        y = yf_map.get(yf_sym)
+    try:
 
-        if y:
+        nav = fetch_from_naver()
 
-            results.append({"name": name, **y})
+        if nav:
 
-        else:
+            items = [normalize_item(it) for it in nav]
 
-            miss.append({"name": name, "stage":"yf", "detail":"no_data"})
+    except Exception as e:
 
-
-
-    if not results:
-
-        return {"ok": False, "items": [], "error": "kr_no_data", "miss": miss}
+        errors.append(f"naver:{e}")
 
 
 
-    # 정렬: KOSPI, KOSDAQ, KOSPI200 순서 유지
+    if items:
 
-    order = {it["name"]: idx for idx, it in enumerate(IDX)}  # {"KOSPI":0, "KOSDAQ":1, "KOSPI200":2}
+        set_cache(seg, items)
 
-    def _order_key(item: dict) -> int:
-
-        # 예외 방지: name이 없거나 이상하면 맨 뒤로
-
-        return order.get(item.get("name", ""), 999)
+        return {"ok": True, "items": items, "stale": False, "source": "naver"}
 
 
 
-    results.sort(key=_order_key)
+    # 공급자 전멸 → 캐시라도 성공 처리
 
-    return {"ok": True, "items": results, "error": None, "miss": miss}
+    if cached:
+
+        return {"ok": True, "items": cached, "stale": True, "source": "cache", "error": ";".join(errors) or "provider_fail"}
+
+
+
+    return {"ok": False, "items": [], "error": "kr_no_data", "source": "KR"}
