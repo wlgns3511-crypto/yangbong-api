@@ -54,6 +54,7 @@ def _parse_naver(html: str) -> Dict[str, Any]:
     # 예: <em>4,026.45</em> 또는 _4,026.45_ 형태
 
     # 1) <em> 태그 내부의 큰 숫자 찾기 (가격 후보)
+    # 단, 현실적인 지수 가격 범위만 (200 ~ 10,000)
 
     em_pattern = re.compile(r'<em[^>]*>([^<]+)</em>', re.IGNORECASE)
 
@@ -63,11 +64,13 @@ def _parse_naver(html: str) -> Dict[str, Any]:
 
         v = _to_float(match.strip())
 
-        if v and v > 100:  # 가격은 보통 100 이상
+        # 지수 가격 범위: 200 ~ 10,000 (거래량/거래대금 제외)
+        if v and v >= 200 and v <= 10_000:
 
             return {"price": v}
 
     # 2) 언더스코어로 감싸진 숫자 찾기 (_4,026.45_ 형태)
+    # 현실적인 지수 가격 범위만 (200 ~ 10,000)
 
     underscore_pattern = re.compile(r'_([\d,]+\.?\d*)_')
 
@@ -77,7 +80,8 @@ def _parse_naver(html: str) -> Dict[str, Any]:
 
         v = _to_float(match)
 
-        if v and v > 100:
+        # 지수 가격 범위: 200 ~ 10,000
+        if v and v >= 200 and v <= 10_000:
 
             return {"price": v}
 
@@ -101,7 +105,11 @@ def _parse_naver(html: str) -> Dict[str, Any]:
 
             return {"price": v}
 
-    # 4) 마지막 fallback: 양수 중 가장 큰 값 (200 이상만, KOSPI200의 "200" 제외)
+    # 4) 마지막 fallback: 현실적인 지수 가격 범위만 선택
+    # KOSPI: 2,000 ~ 5,000
+    # KOSDAQ: 500 ~ 1,500  
+    # KOSPI200: 300 ~ 1,000
+    # 거래량(천만 단위), 거래대금(억 단위) 제외
 
     cand = []
 
@@ -109,15 +117,25 @@ def _parse_naver(html: str) -> Dict[str, Any]:
 
         v = _to_float(s)
 
-        # 200보다 큰 값만 선택 (KOSPI200의 "200" 제외)
-        # KOSPI200의 실제 가격은 500대이므로 200은 제외
-        if v and v > 200 and v < 10_000_000:  # 현실적인 범위
+        # 지수 가격의 현실적인 범위: 200 ~ 10,000
+        # 거래량(17,919,022)이나 거래대금(199,430) 같은 큰 값 제외
+        if v and v >= 200 and v <= 10_000:
 
             cand.append(v)
 
     if cand:
 
-        return {"price": max(cand)}
+        # 가장 큰 값이 아니라, 적절한 범위 내의 값 선택
+        # 보통 가격은 소수점이 있으므로, 소수점이 있는 값 우선
+        # 없으면 중간값 정도 선택 (거래량/거래대금은 보통 정수)
+        decimal_cand = [v for v in cand if v != int(v)]
+        if decimal_cand:
+            return {"price": max(decimal_cand)}
+        # 소수점 없는 값만 있으면 중간값 선택
+        if cand:
+            sorted_cand = sorted(cand)
+            mid_idx = len(sorted_cand) // 2
+            return {"price": sorted_cand[mid_idx]}
 
     # 실패
 
