@@ -54,6 +54,10 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
                 items = [normalize_item(it) for it in nav]
 
+                # 가격이 None인 아이템 필터링
+
+                items = [it for it in items if it.get("price") is not None]
+
         except Exception as e:
 
             errors.append(f"naver:{e}")
@@ -62,7 +66,7 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
         if items:
 
-            # 정규화 후 캐시 저장
+            # 정상 수집된 경우에만 캐시 갱신
 
             set_cache(s, items)
 

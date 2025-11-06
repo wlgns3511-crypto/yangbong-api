@@ -36,19 +36,55 @@ _num = re.compile(r"[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
 
 
 
-def _parse_naver(html: str) -> Dict[str, float]:
+def _to_float(txt: str):
 
-    # 매우 보수적: 페이지 전체에서 숫자 3개 이상 뽑아 평균치/변화율 후보 탐색
+    try:
 
-    # (기존 파서가 깨져도 최소값은 뽑히게)
+        return float(txt.replace(',', '').strip())
 
-    nums = [n.replace(",", "") for n in _num.findall(html)]
+    except Exception:
 
-    # 실패 대비
+        return None
 
-    first = float(nums[0]) if nums else 0.0
 
-    return {"price": first}  # change, rate는 0으로 둬도 화면은 뜬다
+
+def _parse_naver(html: str) -> Dict[str, Any]:
+
+    text = html  # HTML 파싱 없이 텍스트로 처리 (BeautifulSoup 의존성 제거)
+
+    # 1) '현재가/지수/종가' 같은 단어 주변 우선 추출
+
+    m = re.search(r"(현재|지수|종가)\D*([-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?)", text)
+
+    if m:
+
+        v = _to_float(m.group(2))
+
+        if v and v > 0:
+
+            return {"price": v}
+
+    # 2) 숫자 전부 수집 후 '양수이면서 가장 큰 값'을 가격 후보로
+
+    cand = []
+
+    for s in re.findall(r"-?\d{1,3}(?:,\d{3})*(?:\.\d+)?", text):
+
+        v = _to_float(s)
+
+        if v and v > 0:
+
+            cand.append(v)
+
+    if cand:
+
+        # 변화량(보통 절대값이 작음)보다 가격(절대값 큼)을 선택
+
+        return {"price": max(cand)}
+
+    # 실패
+
+    return {"price": None}
 
 
 
@@ -68,13 +104,23 @@ def fetch_from_naver() -> List[Dict[str, Any]]:
 
             d = _parse_naver(r.text)
 
+            price = d.get("price")
+
+            # 가격이 유효하지 않으면 캐시에 쓰지 않게 skip
+
+            if not isinstance(price, (int, float)) or price <= 0:
+
+                log.warning("naver %s invalid price -> skip", sym)
+
+                continue
+
             out.append({
 
                 "symbol": sym,
 
                 "name": sym,
 
-                "price": d.get("price", 0),
+                "price": float(price),
 
                 "change": 0,
 
