@@ -50,35 +50,64 @@ def _to_float(txt: str):
 
 def _parse_naver(html: str) -> Dict[str, Any]:
 
-    text = html  # HTML 파싱 없이 텍스트로 처리 (BeautifulSoup 의존성 제거)
+    # 네이버 페이지에서 가격은 보통 <em> 태그나 특정 클래스에 있음
+    # 예: <em>4,026.45</em> 또는 _4,026.45_ 형태
 
-    # 1) '현재가/지수/종가' 같은 단어 주변 우선 추출
+    # 1) <em> 태그 내부의 큰 숫자 찾기 (가격 후보)
 
-    m = re.search(r"(현재|지수|종가)\D*([-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?)", text)
+    em_pattern = re.compile(r'<em[^>]*>([^<]+)</em>', re.IGNORECASE)
 
-    if m:
+    em_matches = em_pattern.findall(html)
 
-        v = _to_float(m.group(2))
+    for match in em_matches:
 
-        if v and v > 0:
+        v = _to_float(match.strip())
+
+        if v and v > 100:  # 가격은 보통 100 이상
 
             return {"price": v}
 
-    # 2) 숫자 전부 수집 후 '양수이면서 가장 큰 값'을 가격 후보로
+    # 2) 언더스코어로 감싸진 숫자 찾기 (_4,026.45_ 형태)
+
+    underscore_pattern = re.compile(r'_([\d,]+\.?\d*)_')
+
+    underscore_matches = underscore_pattern.findall(html)
+
+    for match in underscore_matches:
+
+        v = _to_float(match)
+
+        if v and v > 100:
+
+            return {"price": v}
+
+    # 3) '코스피' 또는 '코스닥' 키워드 주변의 큰 숫자 찾기
+
+    index_pattern = re.compile(r'(코스피|코스닥|KOSPI|KOSDAQ)[^0-9]*([\d,]+\.?\d*)', re.IGNORECASE)
+
+    index_matches = index_pattern.findall(html)
+
+    for _, num_str in index_matches:
+
+        v = _to_float(num_str)
+
+        if v and v > 100:
+
+            return {"price": v}
+
+    # 4) 마지막 fallback: 양수 중 가장 큰 값 (100 이상만)
 
     cand = []
 
-    for s in re.findall(r"-?\d{1,3}(?:,\d{3})*(?:\.\d+)?", text):
+    for s in re.findall(r"[\d,]+\.?\d*", html):
 
         v = _to_float(s)
 
-        if v and v > 0:
+        if v and v >= 100 and v < 10_000_000:  # 현실적인 범위
 
             cand.append(v)
 
     if cand:
-
-        # 변화량(보통 절대값이 작음)보다 가격(절대값 큼)을 선택
 
         return {"price": max(cand)}
 

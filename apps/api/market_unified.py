@@ -12,7 +12,8 @@ from .market_crypto import get_crypto
 
 from .market_commodity import get_cmdty
 
-from .market_kr import fetch_from_naver   # 보수적 파싱 로직 사용
+from .market_kr import fetch_from_naver   # HTML 파싱 fallback
+from apps.api.naver_indices import fetch_kr_indices   # JSON API 우선 사용
 
 
 
@@ -38,7 +39,7 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
 
 
-        # 네이버에서 데이터 가져오기 (보수적 파싱 사용)
+        # 네이버에서 데이터 가져오기 (JSON API 우선, HTML fallback)
 
         items: List[Dict[str, Any]] = []
 
@@ -46,21 +47,51 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
 
 
+        # 1순위: 네이버 JSON API 사용
+
         try:
 
-            nav = fetch_from_naver()
+            codes = ["KOSPI", "KOSDAQ", "KPI200"]
 
-            if nav:
+            name_map = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KPI200": "KOSPI200"}
 
-                items = [normalize_item(it) for it in nav]
+            data_map = fetch_kr_indices(codes)
 
-                # 가격이 None인 아이템 필터링
+            for code in codes:
 
-                items = [it for it in items if it.get("price") is not None]
+                name = name_map[code]
+
+                data = data_map.get(code, {})
+
+                if data and data.get("price", 0) > 0:
+
+                    items.append({"name": name, "symbol": name, **data})
 
         except Exception as e:
 
-            errors.append(f"naver:{e}")
+            errors.append(f"naver_json:{e}")
+
+
+
+        # 2순위: JSON API 실패 시 HTML 파싱 fallback
+
+        if not items:
+
+            try:
+
+                nav = fetch_from_naver()
+
+                if nav:
+
+                    items = [normalize_item(it) for it in nav]
+
+                    # 가격이 None인 아이템 필터링
+
+                    items = [it for it in items if it.get("price") is not None]
+
+            except Exception as e:
+
+                errors.append(f"naver_html:{e}")
 
 
 
