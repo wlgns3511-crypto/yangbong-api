@@ -81,21 +81,27 @@ def _parse_naver(html: str) -> Dict[str, Any]:
 
             return {"price": v}
 
-    # 3) '코스피' 또는 '코스닥' 키워드 주변의 큰 숫자 찾기
+    # 3) '코스피200' 또는 '코스피 200' 같은 패턴은 제외하고, 실제 가격만 찾기
+    # 네이버 페이지에서 가격은 보통 테이블의 첫 번째 큰 숫자
 
-    index_pattern = re.compile(r'(코스피|코스닥|KOSPI|KOSDAQ)[^0-9]*([\d,]+\.?\d*)', re.IGNORECASE)
+    # "코스피200" 같은 텍스트에서 "200"을 추출하지 않도록 주의
+    # 대신 "코스피200" 다음에 오는 큰 숫자(실제 가격)를 찾기
+
+    index_pattern = re.compile(r'(코스피200|KOSPI200|코스닥|KOSPI|KOSDAQ)[^0-9]*([\d,]+\.?\d*)', re.IGNORECASE)
 
     index_matches = index_pattern.findall(html)
 
-    for _, num_str in index_matches:
+    for keyword, num_str in index_matches:
 
         v = _to_float(num_str)
 
-        if v and v > 100:
+        # "KOSPI200" 다음에 오는 "200"은 제외 (실제 가격은 100 이상이어야 함)
+        # 하지만 KOSPI200의 실제 가격은 500대이므로 200은 제외
+        if v and v > 200:  # 200보다 큰 값만 (KOSPI200의 실제 가격은 500대)
 
             return {"price": v}
 
-    # 4) 마지막 fallback: 양수 중 가장 큰 값 (100 이상만)
+    # 4) 마지막 fallback: 양수 중 가장 큰 값 (200 이상만, KOSPI200의 "200" 제외)
 
     cand = []
 
@@ -103,7 +109,9 @@ def _parse_naver(html: str) -> Dict[str, Any]:
 
         v = _to_float(s)
 
-        if v and v >= 100 and v < 10_000_000:  # 현실적인 범위
+        # 200보다 큰 값만 선택 (KOSPI200의 "200" 제외)
+        # KOSPI200의 실제 가격은 500대이므로 200은 제외
+        if v and v > 200 and v < 10_000_000:  # 현실적인 범위
 
             cand.append(v)
 

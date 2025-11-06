@@ -57,6 +57,10 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
             data_map = fetch_kr_indices(codes)
 
+            import logging
+
+            log = logging.getLogger("market.unified")
+
             for code in codes:
 
                 name = name_map[code]
@@ -67,7 +71,17 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
                     items.append({"name": name, "symbol": name, **data})
 
+                else:
+
+                    log.warning("naver_json: %s returned empty or invalid data: %s", code, data)
+
         except Exception as e:
+
+            import logging
+
+            log = logging.getLogger("market.unified")
+
+            log.error("naver_json error: %s", e)
 
             errors.append(f"naver_json:{e}")
 
