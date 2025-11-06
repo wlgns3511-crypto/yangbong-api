@@ -2,6 +2,8 @@
 
 from fastapi import APIRouter, Query
 
+from typing import Any, Dict, List
+
 from .market_common import get_cache, set_cache, normalize_item
 
 from .market_world import _get_world_logic
@@ -10,7 +12,7 @@ from .market_crypto import get_crypto
 
 from .market_commodity import get_cmdty
 
-from apps.api.naver_indices import fetch_kr_indices   # ← 새로 추가
+from .market_kr import fetch_from_naver   # 보수적 파싱 로직 사용
 
 
 
@@ -36,33 +38,25 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
 
 
-        # 네이버에서 데이터 가져오기
+        # 네이버에서 데이터 가져오기 (보수적 파싱 사용)
 
-        codes = ["KOSPI", "KOSDAQ", "KPI200"]
+        items: List[Dict[str, Any]] = []
 
-        name_map = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "KPI200": "KOSPI200"}
-
-        data_map = fetch_kr_indices(codes)
-
-        items = []
-
-        errors = []
+        errors: List[str] = []
 
 
 
-        for code in codes:
+        try:
 
-            name = name_map[code]
+            nav = fetch_from_naver()
 
-            data = data_map.get(code, {})
+            if nav:
 
-            if data and data.get("price", 0) > 0:
+                items = [normalize_item(it) for it in nav]
 
-                items.append({"name": name, "symbol": name, **data})
+        except Exception as e:
 
-            else:
-
-                errors.append(f"{name}:naver_no_data")
+            errors.append(f"naver:{e}")
 
 
 
@@ -70,11 +64,9 @@ def market(seg: str = Query(..., regex="^(KR|US|CRYPTO|CMDTY)$"), cache: int = Q
 
             # 정규화 후 캐시 저장
 
-            normalized_items = [normalize_item(it) for it in items]
+            set_cache(s, items)
 
-            set_cache(s, normalized_items)
-
-            return {"ok": True, "items": normalized_items, "stale": False, "source": "naver"}
+            return {"ok": True, "items": items, "stale": False, "source": "naver"}
 
 
 
