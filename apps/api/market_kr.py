@@ -6,6 +6,7 @@ import re
 import requests
 from typing import Any, Dict, List
 import logging
+from fastapi import APIRouter, Query
 
 # ✅ 캐시 유틸은 쓰지 않음. 여기서는 normalize_item만 필요
 from .market_common import normalize_item
