@@ -5,8 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from typing import Any, Dict, List
-from .market_common import is_fresh, now_ts, normalize_item
+
+# ✅ 캐시는 cache.py에서
 from .cache import load_cache, save_cache
+# ✅ 시간/신선도 유틸은 market_common에서
+from .market_common import is_fresh, now_ts, normalize_item
+
+# 시장별 수집 함수
 from .market_kr import fetch_from_naver as fetch_kr
 from .market_world import fetch_from_naver_world as fetch_us
 

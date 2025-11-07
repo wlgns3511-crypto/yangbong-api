@@ -1,13 +1,14 @@
 # apps/api/market_kr.py
 
-from fastapi import APIRouter, Query
+from __future__ import annotations
 
+import re
+import requests
 from typing import Any, Dict, List
+import logging
 
-import logging, requests, re
-
+# ✅ 캐시 유틸은 쓰지 않음. 여기서는 normalize_item만 필요
 from .market_common import normalize_item
-from .cache import get_cache, set_cache  # ✅ 캐시는 cache.py에서
 
 
 
@@ -197,19 +198,9 @@ def fetch_from_naver() -> List[Dict[str, Any]]:
 
 def get_market_kr(seg: str = Query("KR"), cache: int = Query(1)) -> Dict[str, Any]:
 
+    """레거시 엔드포인트 - market_unified.py 사용 권장"""
+
     seg = seg.upper()
-
-    # cache=0이면 캐시 무시
-
-    if cache != 0:
-
-        cached, fresh = get_cache(seg)
-
-        if cached:
-
-            return {"ok": True, "items": cached, "stale": not fresh, "source": "cache"}
-
-
 
     items: List[Dict[str, Any]] = []
 
@@ -233,17 +224,7 @@ def get_market_kr(seg: str = Query("KR"), cache: int = Query(1)) -> Dict[str, An
 
     if items:
 
-        set_cache(seg, items)
-
         return {"ok": True, "items": items, "stale": False, "source": "naver"}
-
-
-
-    # 공급자 전멸 → 캐시라도 성공 처리
-
-    if cached:
-
-        return {"ok": True, "items": cached, "stale": True, "source": "cache", "error": ";".join(errors) or "provider_fail"}
 
 
 
