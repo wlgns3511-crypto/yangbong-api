@@ -42,6 +42,13 @@ def get_market(
     meta = cached.get("meta") or {}
     ts = meta.get("ts")
     
+    # 캐시 헤더: 모든 응답에 캐시 차단 헤더 추가
+    cache_headers = {
+        "Cache-Control": "no-store, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+    
     # 캐시 사용 허용 + 신선 → 캐시 반환
     if cache != 0 and is_fresh(ts):
         return JSONResponse({
@@ -49,7 +56,7 @@ def get_market(
             "items": items,
             "source": "cache",
             "stale": False
-        })
+        }, headers=cache_headers)
     
     # 라이브 수집
     live = _fetch(seg)
@@ -62,7 +69,7 @@ def get_market(
             "items": live,
             "source": "live",
             "stale": False
-        })
+        }, headers=cache_headers)
     
     # 라이브 실패 시 캐시라도 반환 (stale)
     return JSONResponse({
@@ -70,4 +77,4 @@ def get_market(
         "items": items,
         "source": "cache",
         "stale": True
-    })
+    }, headers=cache_headers)
