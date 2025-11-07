@@ -1,126 +1,35 @@
 # apps/api/app.py
+from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
-
-# ✅ 라우터 import
-from . import market_kr, market_world, market_crypto, market_commodity
-from .market_unified import router as market_unified_router
-from .news_routes import router as news_router
+from .market_unified import router as market_router
+from .market_scheduler import start_scheduler
 from .news_scheduler import run_loop
 
-app = FastAPI(
-    title="양봉클럽 API",
-    description="FastAPI backend for yangbong.club",
-    version="1.0.0",
-)
+app = FastAPI(title="yangbong-api")
 
-# ✅ CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://yangbong.club", "https://www.yangbong.club", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ 라우터 등록
-# 통합 라우터 (프론트가 쓰는 쿼리형 /api/market?seg=...) - 네이버 JSON API 사용
-app.include_router(market_unified_router)
+app.include_router(market_router)
 
-# 개별 라우터 (기존 경로 유지)
-app.include_router(market_kr.router, tags=["market_kr"])  # 이미 prefix="/api/market" 포함 → /api/market/kr
-app.include_router(market_world.router, tags=["market_world"])  # prefix="/api" → /api/market?seg=US
-app.include_router(market_crypto.router, tags=["market_crypto"])  # prefix="/api" → /api/market?seg=CRYPTO
-app.include_router(market_commodity.router, tags=["market_commodity"])  # prefix="/api" → /api/market?seg=CMDTY
 
-# 뉴스
-app.include_router(news_router, tags=["news"])  # 이미 prefix="/api" 포함
+@app.on_event("startup")
+def _on_startup():
+    """앱 시작 시 백그라운드 태스크 시작"""
+    # 뉴스 수집 스케줄러
+    asyncio.create_task(run_loop())
+    
+    # 마켓 데이터 스케줄러
+    start_scheduler()
+
 
 @app.get("/health")
 def health():
     return {"ok": True}
-
-# 디버그 라우터
-import httpx
-from fastapi import APIRouter, HTTPException
-from os import getenv
-
-debug = APIRouter(prefix="/__debug", tags=["__debug"])
-
-@debug.get("/ip")
-def my_outbound_ip():
-    try:
-        ip = httpx.get("https://api.ipify.org", timeout=5).text
-        return {"ip": ip}
-    except Exception as e:
-        raise HTTPException(500, f"ipify error: {e}")
-
-@debug.get("/kis/ping")
-def kis_ping():
-    base = getenv("KIS_BASE_URL")
-    if not base:
-        raise HTTPException(500, "KIS_BASE_URL not set")
-    return {"base": base, "ok": True}
-
-@debug.get("/kis/test-index")
-def kis_test_index(code: str = "0001"):
-    """KIS 인덱스 조회를 직접 테스트 (디버깅용)"""
-    from apps.api.kis_client import get_index, get_access_token, KIS_BASE_URL
-    try:
-        token_info = {
-            "has_token": bool(get_access_token()),
-            "token_preview": get_access_token()[:20] + "..." if get_access_token() else None,
-        }
-        
-        status, result, raw = get_index("U", code)
-        
-        return {
-            "ok": status == 200,
-            "kis_base": KIS_BASE_URL,
-            "code": code,
-            "token_info": token_info,
-            "status_code": status,
-            "response": result,
-            "raw_preview": raw[:500] if raw else "",
-        }
-    except Exception as e:
-        return {
-            "ok": False,
-            "kis_base": KIS_BASE_URL,
-            "code": code,
-            "error": str(e),
-            "error_type": type(e).__name__,
-        }
-
-@debug.get("/kis/overseas")
-def kis_overseas_price(excd: str = "NAS", symb: str = "AAPL"):
-    from .kis_client import get_overseas_price, KIS_BASE_URL
-    try:
-        data = get_overseas_price(excd, symb)
-        return {"ok": True, "base": KIS_BASE_URL, "excd": excd, "symb": symb, **data}
-    except Exception as e:
-        return {"ok": False, "base": KIS_BASE_URL, "excd": excd, "symb": symb,
-                "error": str(e), "type": type(e).__name__}
-
-app.include_router(debug)
-
-# --- DEBUG ROUTES (임시) ---
-from fastapi import FastAPI
-app_: FastAPI = app  # alias
-
-@app_.get("/__debug/routes")
-def _debug_routes():
-    return [
-        {"path": r.path, "name": r.name, "methods": list(r.methods or [])}
-        for r in app_.routes
-    ]
-
-@app_.get("/__debug/ping")
-def _debug_ping():
-    return {"ok": True}
-
-@app.on_event("startup")
-async def start_news_collector():
-    """뉴스 수집 스케줄러를 백그라운드 태스크로 시작"""
-    asyncio.create_task(run_loop())

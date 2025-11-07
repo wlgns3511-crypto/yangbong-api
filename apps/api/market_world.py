@@ -70,11 +70,13 @@ def _get_world_logic(seg: str = "US", cache: int = 1) -> Dict[str, Any]:
     """US 시장 데이터를 가져오는 실제 로직 (재사용 가능)"""
     seg = seg.upper()
 
-    cached, fresh = get_cache(seg)
-
-    if cache and cached:
-
-        return {"ok": True, "items": cached, "stale": not fresh, "source": "cache"}
+    # cache=0이면 캐시 무시
+    if cache != 0:
+        cached, fresh = get_cache(seg)
+        if cached:
+            return {"ok": True, "items": cached, "stale": not fresh, "source": "cache"}
+    else:
+        cached, fresh = [], False  # 캐시 무시
 
 
 

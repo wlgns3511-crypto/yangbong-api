@@ -198,11 +198,15 @@ def get_market_kr(seg: str = Query("KR"), cache: int = Query(1)) -> Dict[str, An
 
     seg = seg.upper()
 
-    cached, fresh = get_cache(seg)
+    # cache=0이면 캐시 무시
 
-    if cache and cached:
+    if cache != 0:
 
-        return {"ok": True, "items": cached, "stale": not fresh, "source": "cache"}
+        cached, fresh = get_cache(seg)
+
+        if cached:
+
+            return {"ok": True, "items": cached, "stale": not fresh, "source": "cache"}
 
 
 

@@ -1,26 +1,61 @@
-import time
-from typing import Any, Optional
+# apps/api/cache.py
+# 파일 기반 마켓 데이터 캐시 (스케줄러와 API 공유)
 
-_cache: dict[str, tuple[Any, float]] = {}
+from __future__ import annotations
+import json
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+CACHE_DIR = Path(os.environ.get("MARKET_CACHE_DIR", "/tmp"))
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def put_cache(key: str, data: Any, ttl: int = 60) -> None:
-    """캐시에 데이터 저장"""
-    _cache[key] = (data, time.time() + ttl)
+def _cache_file(seg: str) -> Path:
+    """세그먼트별 캐시 파일 경로"""
+    return CACHE_DIR / f"market_{seg.upper()}.json"
 
 
-def get_cache(key: str) -> Optional[Any]:
-    """캐시에서 데이터 조회 (만료된 경우 None 반환)"""
-    v = _cache.get(key)
-    if not v:
+def load_cache(seg: str) -> Optional[Dict[str, Any]]:
+    """캐시 로드: {"items": [...], "meta": {"ts": ..., "source": ...}}"""
+    cache_file = _cache_file(seg)
+    if not cache_file.exists():
         return None
-    data, exp = v
-    return data if time.time() < exp else None
+    try:
+        with open(cache_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else None
+    except Exception:
+        return None
 
 
-def upsert_market_data(market: str, symbol: str, **kwargs) -> None:
-    """시장 데이터 캐시 업데이트 (향후 DB 연동 대비)"""
-    # 현재는 로깅만 수행 (필요시 DB 저장 로직 추가)
-    key = f"{market}:{symbol}"
-    # 향후 DB 저장 로직 추가 예정
-    pass
+def save_cache(seg: str, items: List[Dict[str, Any]], meta: Dict[str, Any]) -> None:
+    """캐시 저장"""
+    cache_file = _cache_file(seg)
+    tmp_file = cache_file.with_suffix(".tmp")
+    try:
+        data = {"items": items, "meta": meta}
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        tmp_file.replace(cache_file)
+    except Exception:
+        if tmp_file.exists():
+            tmp_file.unlink(missing_ok=True)
+
+
+# 호환성을 위한 기존 함수들 (market_common.py에서 사용)
+def get_cache(seg: str):
+    """기존 get_cache 호환 (반환: (items, fresh))"""
+    from .market_common import is_fresh, now_ts
+    cached = load_cache(seg)
+    if not cached:
+        return [], False
+    items = cached.get("items", [])
+    ts = cached.get("meta", {}).get("ts")
+    return items, is_fresh(ts)
+
+
+def set_cache(seg: str, items: List[Dict[str, Any]]) -> None:
+    """기존 set_cache 호환"""
+    from .market_common import now_ts
+    save_cache(seg, items, {"ts": now_ts(), "source": "api"})
