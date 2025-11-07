@@ -6,7 +6,8 @@ from typing import Any, Dict, List
 
 import logging, requests, re
 
-from .market_common import get_cache, set_cache, normalize_item
+from .market_common import normalize_item
+from .cache import get_cache, set_cache  # ✅ 캐시는 cache.py에서
 
 
 
