@@ -91,90 +91,144 @@ def fetch_world_index(symbol: str, config: dict) -> Optional[Dict]:
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 현재가 추출 (여러 선택자 시도)
+            # 현재가 추출 (네이버 금융 해외 지수 페이지 실제 구조)
             price = None
             price_selectors = [
-                '.spot .num',
-                '.spot .num_s',
-                '#contentarea .spot .num',
-                '.today .num',
-                '.today .num_s',
-                '#now_value',
+                'p.no_today em',           # 우선: p.no_today 안의 em 태그
+                'p.no_today em.blind',     # blind 클래스가 em에 직접 있는 경우
+                'p.no_today .blind',       # blind 클래스
+                '#now_value',              # 대안: id로 직접 접근
+                'p.no_today',              # p.no_today 전체에서 추출
+                '.no_today em',            # 대안: 클래스만
+                '.no_today .num',          # 대안: num 클래스
             ]
             
             for selector in price_selectors:
                 price_elem = soup.select_one(selector)
                 if price_elem:
-                    price_text = price_elem.get_text(strip=True)
+                    # blind 클래스를 가진 요소 찾기 (우선순위)
+                    blind_elem = price_elem.find(class_='blind')
+                    if blind_elem:
+                        price_text = blind_elem.get_text(strip=True)
+                    else:
+                        price_text = price_elem.get_text(strip=True)
+                    
                     if price_text:
                         price = parse_value(price_text)
                         if price > 0:
+                            logger.info(f"{symbol}: Found price using selector '{selector}': {price}")
                             break
             
             if not price or price <= 0:
-                logger.warning(f"{symbol}: price not found or invalid. HTML preview: {response.text[:500]}")
+                # 디버깅을 위해 HTML 일부 출력
+                no_today_elem = soup.select_one('p.no_today')
+                if no_today_elem:
+                    html_snippet = str(no_today_elem)[:1000]
+                    logger.warning(f"{symbol}: price not found. p.no_today HTML: {html_snippet}")
+                else:
+                    # 전체 HTML 구조 확인을 위해 주요 요소 찾기
+                    contentarea = soup.select_one('#contentarea')
+                    if contentarea:
+                        logger.warning(f"{symbol}: p.no_today not found. contentarea exists: {bool(contentarea)}")
+                    else:
+                        logger.warning(f"{symbol}: p.no_today and contentarea not found. Response length: {len(response.text)}")
+                        # 첫 1000자만 출력
+                        logger.warning(f"{symbol}: HTML preview: {response.text[:1000]}")
+                
                 if attempt < max_attempts - 1:
                     time.sleep(1 + attempt)  # 점진적 대기
                     continue
                 return None
             
-            # 등락 정보 추출 (여러 방법 시도)
+            # 변동폭 추출 (네이버 금융 해외 지수 페이지 실제 구조)
             change = 0.0
-            change_rate = 0.0
             change_selectors = [
-                '.spot .change',
-                '.spot .change .num',
-                '.spot .change .num_s',
-                '#contentarea .spot .change',
-                '.today .change',
+                'p.no_exday em',           # 우선: p.no_exday 안의 em 태그
+                'p.no_exday em.blind',     # blind 클래스가 em에 직접 있는 경우
+                'p.no_exday .blind',       # 대안: blind 클래스
+                '#change_value',           # 대안: id로 직접 접근
+                'p.no_exday',              # p.no_exday 전체에서 추출
+                '.no_exday em',            # 대안: 클래스만
             ]
             
-            change_text = ""
             change_elem = None
+            change_text = ""
             for selector in change_selectors:
                 change_elem = soup.select_one(selector)
                 if change_elem:
-                    change_text = change_elem.get_text(strip=True)
+                    # blind 클래스를 가진 요소 찾기 (우선순위)
+                    blind_elem = change_elem.find(class_='blind')
+                    if blind_elem:
+                        change_text = blind_elem.get_text(strip=True)
+                    else:
+                        change_text = change_elem.get_text(strip=True)
+                    
                     if change_text:
+                        logger.info(f"{symbol}: Found change using selector '{selector}': {change_text}")
                         break
             
             if change_text:
-                # "▲ 100.50 +0.25%" 또는 "▼ -100.50 -0.25%" 형태
-                is_down = '▼' in change_text or 'down' in change_text.lower()
-                is_up = '▲' in change_text or 'up' in change_text.lower()
-                
-                # 등락액 추출
-                # 정규식으로 숫자 패턴 찾기 (부호 포함)
-                change_matches = re.findall(r'([+-]?\d{1,3}(?:,\d{3})*(?:\.\d+)?)', change_text)
-                if change_matches:
-                    change_val = parse_value(change_matches[0])
-                    if change_val != 0:
-                        # 부호 확인
-                        if is_down:
-                            change = -abs(change_val)
-                        elif is_up:
-                            change = abs(change_val)
-                        else:
-                            # 부호가 없으면 숫자 앞의 +/- 확인
-                            if change_val < 0:
-                                change = change_val
-                            else:
-                                change = change_val
-                
-                # 등락률 추출 (정규식)
-                rate_match = re.search(r'([+-]?\d+\.?\d*)%', change_text)
+                # "상승 100.50" 또는 "하락 100.50" 형태 파싱
+                if '하락' in change_text or '▼' in change_text:
+                    # 하락인 경우
+                    change_val = parse_value(change_text)
+                    change = -abs(change_val) if change_val > 0 else change_val
+                elif '상승' in change_text or '▲' in change_text:
+                    # 상승인 경우
+                    change_val = parse_value(change_text)
+                    change = abs(change_val)
+                else:
+                    # 숫자만 있는 경우 (부호 포함 가능)
+                    # 정규식으로 숫자 추출
+                    change_matches = re.findall(r'([+-]?\d{1,3}(?:,\d{3})*(?:\.\d+)?)', change_text)
+                    if change_matches:
+                        change_val = parse_value(change_matches[0])
+                        change = change_val
+                    else:
+                        change_val = parse_value(change_text)
+                        change = change_val
+            
+            # 등락률 추출 (네이버 금융 해외 지수 페이지 실제 구조)
+            change_rate = 0.0
+            rate_selectors = [
+                'p.no_exday span',         # 우선: p.no_exday 안의 span 태그
+                '#change_rate',            # 대안: id로 직접 접근
+                'p.no_exday em span',      # 대안: em 안의 span
+                '.no_exday span',          # 대안: 클래스만
+            ]
+            
+            rate_elem = None
+            rate_text = ""
+            for selector in rate_selectors:
+                rate_elem = soup.select_one(selector)
+                if rate_elem:
+                    rate_text = rate_elem.get_text(strip=True)
+                    if rate_text:
+                        logger.debug(f"{symbol}: Found rate using selector '{selector}': {rate_text}")
+                        break
+            
+            # 등락률이 span에서 찾지 못했으면 no_exday 전체 텍스트에서 추출 시도
+            if not rate_text:
+                no_exday_elem = soup.select_one('p.no_exday')
+                if no_exday_elem:
+                    rate_text = no_exday_elem.get_text(strip=True)
+                    logger.debug(f"{symbol}: Trying to extract rate from no_exday full text: {rate_text}")
+            
+            if rate_text:
+                # 정규식으로 등락률 추출 (% 포함)
+                rate_match = re.search(r'([+-]?\d+\.?\d*)%', rate_text)
                 if rate_match:
                     change_rate = parse_value(rate_match.group(1))
                 else:
-                    # 등락률이 없으면 계산 시도
+                    # 등락률이 없으면 change 값으로 계산
                     if change != 0.0 and price > 0:
                         change_rate = (change / (price - change)) * 100
                         change_rate = round(change_rate, 2)
-            
-            # 등락률이 추출되지 않았고 change가 있으면 계산 시도
-            if change_rate == 0.0 and change != 0.0 and price > 0:
-                change_rate = (change / (price - change)) * 100
-                change_rate = round(change_rate, 2)
+            else:
+                # 등락률이 추출되지 않았고 change가 있으면 계산 시도
+                if change != 0.0 and price > 0:
+                    change_rate = (change / (price - change)) * 100
+                    change_rate = round(change_rate, 2)
             
             result = {
                 'symbol': symbol,
