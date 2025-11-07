@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 from .market_unified import router as market_router
+from .news_routes import router as news_router
 from .market_scheduler import start_scheduler
 from .news_scheduler import run_loop
 
@@ -18,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(market_router)
+app.include_router(news_router)
 
 
 @app.on_event("startup")
