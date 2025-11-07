@@ -17,6 +17,13 @@ from .market_world import fetch_from_naver_world as fetch_us
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
+# ✅ 캐시 차단 헤더 (전역 상수)
+NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0"
+}
+
 
 def _fetch(seg: str) -> List[Dict[str, Any]]:
     """세그먼트별 데이터 수집"""
@@ -42,13 +49,6 @@ def get_market(
     meta = cached.get("meta") or {}
     ts = meta.get("ts")
     
-    # 캐시 헤더: 모든 응답에 캐시 차단 헤더 추가
-    cache_headers = {
-        "Cache-Control": "no-store, max-age=0",
-        "Pragma": "no-cache",
-        "Expires": "0"
-    }
-    
     # 캐시 사용 허용 + 신선 → 캐시 반환
     if cache != 0 and is_fresh(ts):
         return JSONResponse({
@@ -56,7 +56,7 @@ def get_market(
             "items": items,
             "source": "cache",
             "stale": False
-        }, headers=cache_headers)
+        }, headers=NO_STORE_HEADERS)
     
     # 라이브 수집
     live = _fetch(seg)
@@ -69,12 +69,12 @@ def get_market(
             "items": live,
             "source": "live",
             "stale": False
-        }, headers=cache_headers)
+        }, headers=NO_STORE_HEADERS)
     
-    # 라이브 실패 시 캐시라도 반환 (stale)
+    # ✅ 라이브 실패 시 캐시라도 반환 (stale 표시 유지)
     return JSONResponse({
         "ok": True,
         "items": items,
         "source": "cache",
         "stale": True
-    }, headers=cache_headers)
+    }, headers=NO_STORE_HEADERS)
