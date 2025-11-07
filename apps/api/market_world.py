@@ -33,17 +33,51 @@ U_NAV = {
 
 
 
-def _scrape_price(url: str) -> float:
-
+def _scrape_world_data(url: str) -> Dict[str, Any]:
+    """네이버 해외지수 페이지에서 가격, 등락률, 등락액 파싱"""
     r = requests.get(url, headers=UA, timeout=6)
-
-    if r.status_code != 200: return 0.0
-
+    
+    if r.status_code != 200:
+        return {"price": 0.0, "change": 0.0, "changeRate": 0.0}
+    
     import re
+    html = r.text
+    
+    result = {"price": 0.0, "change": 0.0, "changeRate": 0.0}
+    
+    # ✅ 가격: <em class="no_today"> 태그 내부의 숫자
+    em_pattern = re.compile(r'<em[^>]*class="[^"]*no_today[^"]*"[^>]*>([^<]+)</em>', re.IGNORECASE)
+    em_matches = em_pattern.findall(html)
+    for content in em_matches:
+        v = _to_float(content.strip())
+        if v and v > 0:
+            result["price"] = v
+            break
+    
+    # 가격을 못 찾았으면 첫 번째 큰 숫자 사용
+    if result["price"] == 0.0:
+        m = re.search(r"([-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?)", html)
+        if m:
+            result["price"] = float(m.group(1).replace(",", ""))
+    
+    # ✅ 등락률 파싱: "등락액 등락률%" 패턴
+    change_pattern = re.compile(
+        r'([-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s+([-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?)%',
+        re.IGNORECASE
+    )
+    change_matches = change_pattern.findall(html)
+    if change_matches:
+        change_str, rate_str = change_matches[0]
+        result["change"] = _to_float(change_str) or 0.0
+        result["changeRate"] = _to_float(rate_str) or 0.0
+    
+    return result
 
-    m = re.search(r"[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?", r.text)
-
-    return float(m.group(0).replace(",", "")) if m else 0.0
+def _to_float(txt: str):
+    try:
+        return float(txt.replace(',', '').strip())
+    except Exception:
+        return None
 
 
 
@@ -55,9 +89,17 @@ def fetch_from_naver_world() -> List[Dict[str, Any]]:
 
         try:
 
-            price = _scrape_price(url)
+            data = _scrape_world_data(url)
 
-            out.append({"symbol": sym, "name": sym, "price": price, "change": 0, "changeRate": 0, "time": None})
+            if data["price"] > 0:
+                out.append({
+                    "symbol": sym, 
+                    "name": sym, 
+                    "price": data["price"], 
+                    "change": data["change"], 
+                    "changeRate": data["changeRate"], 
+                    "time": None
+                })
 
         except Exception as e:
 
