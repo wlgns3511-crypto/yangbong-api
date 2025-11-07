@@ -48,97 +48,96 @@ def _to_float(txt: str):
 
 
 
-def _parse_naver(html: str) -> Dict[str, Any]:
-
-    # 네이버 페이지에서 가격은 보통 <em> 태그나 특정 클래스에 있음
-    # 예: <em>4,026.45</em> 또는 _4,026.45_ 형태
-
-    # 1) <em> 태그 내부의 큰 숫자 찾기 (가격 후보)
-    # 단, 현실적인 지수 가격 범위만 (200 ~ 10,000)
-
-    em_pattern = re.compile(r'<em[^>]*>([^<]+)</em>', re.IGNORECASE)
-
+def _parse_naver(html: str, index_name: str = None) -> Dict[str, Any]:
+    """
+    네이버 지수 페이지에서 가격 파싱
+    index_name: "KOSPI", "KOSDAQ", "KOSPI200" - 특정 지수를 위한 최적화된 파싱
+    """
+    
+    # 각 지수의 예상 가격 범위
+    price_ranges = {
+        "KOSPI": (2000, 5000),
+        "KOSDAQ": (500, 1500),
+        "KOSPI200": (300, 1000),
+    }
+    
+    min_price, max_price = price_ranges.get(index_name, (200, 10000)) if index_name else (200, 10000)
+    
+    # 1) 테이블에서 <td> 또는 <th> 내부의 큰 숫자 찾기
+    # 네이버 지수 페이지는 보통 테이블 구조 사용
+    table_cell_pattern = re.compile(r'<t[dh][^>]*>([^<]*[\d,]+\.?\d*[^<]*)</t[dh]>', re.IGNORECASE)
+    table_matches = table_cell_pattern.findall(html)
+    
+    for match in table_matches:
+        # 숫자 추출
+        num_str = re.search(r'([\d,]+\.?\d*)', match)
+        if num_str:
+            v = _to_float(num_str.group(1))
+            if v and min_price <= v <= max_price:
+                return {"price": v}
+    
+    # 2) <em> 또는 <strong> 태그 내부의 숫자 찾기 (가격 강조 태그)
+    em_pattern = re.compile(r'<(em|strong)[^>]*>([^<]+)</(em|strong)>', re.IGNORECASE)
     em_matches = em_pattern.findall(html)
-
-    for match in em_matches:
-
-        v = _to_float(match.strip())
-
-        # 지수 가격 범위: 200 ~ 10,000 (거래량/거래대금 제외)
-        if v and v >= 200 and v <= 10_000:
-
+    
+    for tag, content, _ in em_matches:
+        v = _to_float(content.strip())
+        if v and min_price <= v <= max_price:
             return {"price": v}
-
-    # 2) 언더스코어로 감싸진 숫자 찾기 (_4,026.45_ 형태)
-    # 현실적인 지수 가격 범위만 (200 ~ 10,000)
-
-    underscore_pattern = re.compile(r'_([\d,]+\.?\d*)_')
-
-    underscore_matches = underscore_pattern.findall(html)
-
-    for match in underscore_matches:
-
-        v = _to_float(match)
-
-        # 지수 가격 범위: 200 ~ 10,000
-        if v and v >= 200 and v <= 10_000:
-
-            return {"price": v}
-
-    # 3) '코스피200' 또는 '코스피 200' 같은 패턴은 제외하고, 실제 가격만 찾기
-    # 네이버 페이지에서 가격은 보통 테이블의 첫 번째 큰 숫자
-
-    # "코스피200" 같은 텍스트에서 "200"을 추출하지 않도록 주의
-    # 대신 "코스피200" 다음에 오는 큰 숫자(실제 가격)를 찾기
-
-    index_pattern = re.compile(r'(코스피200|KOSPI200|코스닥|KOSPI|KOSDAQ)[^0-9]*([\d,]+\.?\d*)', re.IGNORECASE)
-
-    index_matches = index_pattern.findall(html)
-
-    for keyword, num_str in index_matches:
-
-        v = _to_float(num_str)
-
-        # "KOSPI200" 다음에 오는 "200"은 제외 (실제 가격은 100 이상이어야 함)
-        # 하지만 KOSPI200의 실제 가격은 500대이므로 200은 제외
-        if v and v > 200:  # 200보다 큰 값만 (KOSPI200의 실제 가격은 500대)
-
-            return {"price": v}
-
-    # 4) 마지막 fallback: 현실적인 지수 가격 범위만 선택
-    # KOSPI: 2,000 ~ 5,000
-    # KOSDAQ: 500 ~ 1,500  
-    # KOSPI200: 300 ~ 1,000
-    # 거래량(천만 단위), 거래대금(억 단위) 제외
-
-    cand = []
-
+    
+    # 3) "코스피200", "KOSPI200" 등의 키워드 다음에 오는 숫자 찾기
+    # 더 정확한 패턴: 키워드 뒤 500자 이내의 숫자 중 적절한 범위
+    if index_name and "KOSPI200" in index_name.upper():
+        # 코스피200 특화 파싱
+        kospi200_pattern = re.compile(
+            r'(?:코스피\s*200|KOSPI\s*200|KPI200)[^0-9]*?([\d,]+\.?\d*)',
+            re.IGNORECASE
+        )
+        matches = kospi200_pattern.findall(html)
+        for num_str in matches:
+            v = _to_float(num_str)
+            # 코스피200은 300~1000 범위
+            if v and 300 <= v <= 1000:
+                return {"price": v}
+    
+    # 4) 일반적인 인덱스 패턴 매칭
+    index_keywords = {
+        "KOSPI": r'(?:코스피|KOSPI)(?!\s*200)',
+        "KOSDAQ": r'(?:코스닥|KOSDAQ)',
+        "KOSPI200": r'(?:코스피\s*200|KOSPI\s*200|KPI200)',
+    }
+    
+    if index_name and index_name.upper() in index_keywords:
+        keyword = index_keywords[index_name.upper()]
+        # 키워드 뒤 1000자 이내에서 숫자 찾기
+        # 정규식 패턴을 문자열로 직접 구성 (f-string 사용 시 이스케이프 주의)
+        pattern_str = keyword + r'[^0-9]{0,1000}?([\d,]{1,10}\.?\d*)'
+        pattern = re.compile(pattern_str, re.IGNORECASE)
+        matches = pattern.findall(html)
+        for num_str in matches:
+            v = _to_float(num_str)
+            if v and min_price <= v <= max_price:
+                return {"price": v}
+    
+    # 5) Fallback: 모든 숫자 중 적절한 범위 선택
+    all_numbers = []
     for s in re.findall(r"[\d,]+\.?\d*", html):
-
         v = _to_float(s)
-
-        # 지수 가격의 현실적인 범위: 200 ~ 10,000
-        # 거래량(17,919,022)이나 거래대금(199,430) 같은 큰 값 제외
-        if v and v >= 200 and v <= 10_000:
-
-            cand.append(v)
-
-    if cand:
-
-        # 가장 큰 값이 아니라, 적절한 범위 내의 값 선택
-        # 보통 가격은 소수점이 있으므로, 소수점이 있는 값 우선
-        # 없으면 중간값 정도 선택 (거래량/거래대금은 보통 정수)
-        decimal_cand = [v for v in cand if v != int(v)]
-        if decimal_cand:
-            return {"price": max(decimal_cand)}
+        if v and min_price <= v <= max_price:
+            all_numbers.append(v)
+    
+    if all_numbers:
+        # 소수점이 있는 값 우선 (가격은 보통 소수점 포함)
+        decimal_nums = [v for v in all_numbers if v != int(v)]
+        if decimal_nums:
+            # 가장 큰 소수점 값 (보통 메인 가격)
+            return {"price": max(decimal_nums)}
         # 소수점 없는 값만 있으면 중간값 선택
-        if cand:
-            sorted_cand = sorted(cand)
-            mid_idx = len(sorted_cand) // 2
-            return {"price": sorted_cand[mid_idx]}
-
+        sorted_nums = sorted(all_numbers)
+        mid_idx = len(sorted_nums) // 2
+        return {"price": sorted_nums[mid_idx]}
+    
     # 실패
-
     return {"price": None}
 
 
@@ -157,7 +156,7 @@ def fetch_from_naver() -> List[Dict[str, Any]]:
 
                 log.warning("naver %s %s", sym, r.status_code); continue
 
-            d = _parse_naver(r.text)
+            d = _parse_naver(r.text, index_name=sym)
 
             price = d.get("price")
 
