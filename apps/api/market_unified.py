@@ -51,30 +51,52 @@ def get_market(
     
     # 캐시 사용 허용 + 신선 → 캐시 반환
     if cache != 0 and is_fresh(ts):
-        return JSONResponse({
+        payload = {
             "ok": True,
             "items": items,
             "source": "cache",
-            "stale": False
-        }, headers=NO_STORE_HEADERS)
+            "stale": False,
+            "ts": ts or now_ts(),  # ✅ 캐시 타임스탬프 또는 현재 시각
+        }
+        # 각 아이템에 time이 없으면 ts 세팅
+        for it in payload["items"]:
+            if not it.get("time"):
+                it["time"] = payload["ts"]
+        return JSONResponse(payload, headers=NO_STORE_HEADERS)
     
     # 라이브 수집
     live = _fetch(seg)
     
     # 유효하면 저장 후 반환
     if live:
-        save_cache(seg, live, {"ts": now_ts(), "source": "live"})
-        return JSONResponse({
+        current_ts = now_ts()
+        save_cache(seg, live, {"ts": current_ts, "source": "live"})
+        
+        # ✅ 응답 생성 시각(ts) 추가 + 각 아이템 time 채우기
+        payload = {
             "ok": True,
             "items": live,
             "source": "live",
-            "stale": False
-        }, headers=NO_STORE_HEADERS)
+            "stale": False,
+            "ts": current_ts,  # ✅ 응답 생성 시각 (epoch 초)
+        }
+        # 각 아이템에 time이 없으면 지금 시각 세팅
+        for it in payload["items"]:
+            if not it.get("time"):
+                it["time"] = payload["ts"]
+        
+        return JSONResponse(payload, headers=NO_STORE_HEADERS)
     
     # ✅ 라이브 실패 시 캐시라도 반환 (stale 표시 유지)
-    return JSONResponse({
+    payload = {
         "ok": True,
         "items": items,
         "source": "cache",
-        "stale": True
-    }, headers=NO_STORE_HEADERS)
+        "stale": True,
+        "ts": ts or now_ts(),  # ✅ 캐시 타임스탬프 또는 현재 시각
+    }
+    # 각 아이템에 time이 없으면 ts 세팅
+    for it in payload["items"]:
+        if not it.get("time"):
+            it["time"] = payload["ts"]
+    return JSONResponse(payload, headers=NO_STORE_HEADERS)
