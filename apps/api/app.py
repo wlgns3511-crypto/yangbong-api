@@ -1,5 +1,6 @@
 # apps/api/app.py
 from __future__ import annotations
+from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -33,5 +34,14 @@ def _on_startup():
 
 
 @app.get("/health")
-def health():
+def health_root():
     return {"ok": True}
+
+
+@app.get("/api/health")
+def health():
+    return {
+        "ok": True,
+        "name": "yangbong-api",
+        "ts": int(datetime.now(timezone.utc).timestamp()),
+    }

@@ -1,79 +1,74 @@
-# apps/api/market_crypto.py
+"""KRW 기준 암호화폐 시세 조회 (Upbit)."""
 
-import time, requests
+from __future__ import annotations
 
-from fastapi import APIRouter, Query
+import os
+import time
+from typing import Any, Dict, List
 
+import requests
 
-
-router = APIRouter(prefix="/api", tags=["market_crypto"])
-
-
-
-CG_IDS = [
-
-    {"name": "BTC", "id": "bitcoin"},
-
-    {"name": "ETH", "id": "ethereum"},
-
-    {"name": "XRP", "id": "ripple"},
-
-    {"name": "SOL", "id": "solana"},
-
-    {"name": "BNB", "id": "binancecoin"},
-
-]
+UPBIT_TICKER_ENDPOINT = "https://api.upbit.com/v1/ticker"
+DEFAULT_SYMBOLS = "BTC,ETH,XRP,SOL,BNB"
 
 
+def _to_upbit_markets(symbol_csv: str | None) -> List[str]:
+    """심볼 CSV → Upbit KRW 마켓 코드 리스트."""
+    if not symbol_csv:
+        symbol_csv = DEFAULT_SYMBOLS
+    base_symbols = [
+        sym.strip().upper()
+        for sym in symbol_csv.split(",")
+        if sym.strip()
+    ]
+    return [f"KRW-{symbol}" for symbol in base_symbols]
 
-@router.get("/market")
 
-def get_crypto(seg: str = Query("", alias="seg")):
+def _fetch_upbit(markets: List[str]) -> List[Dict[str, Any]]:
+    """Upbit ticker API 호출."""
+    if not markets:
+        return []
 
-    if seg.upper() != "CRYPTO":
-
-        return {"ok": False, "error": "bad_seg"}
-
-    ids = ",".join(x["id"] for x in CG_IDS)
-
-    url = "https://api.coingecko.com/api/v3/simple/price"
-
-    r = requests.get(url, params={"ids": ids, "vs_currencies": "usd", "include_24hr_change": "true"}, timeout=8)
-
-    r.raise_for_status()
-
-    data = r.json()
-
+    response = requests.get(
+        UPBIT_TICKER_ENDPOINT,
+        params={"markets": ",".join(markets)},
+        timeout=3,
+    )
+    response.raise_for_status()
+    data = response.json()
     now = int(time.time())
 
-    items = []
+    items: List[Dict[str, Any]] = []
+    for row in data:
+        market_code = row.get("market", "")
+        symbol = market_code.split("-")[-1] if market_code else ""
+        timestamp_ms = row.get("timestamp")
+        ts = int(timestamp_ms // 1000) if timestamp_ms else now
 
-    for x in CG_IDS:
+        trade_price = row.get("trade_price")
+        change_rate = row.get("signed_change_rate")
+        change_price = row.get("signed_change_price")
 
-        row = data.get(x["id"])
-
-        if not row: 
-
+        if trade_price is None:
             continue
 
-        price = row.get("usd")
+        items.append(
+            {
+                "symbol": symbol,
+                "name": symbol,
+                "price": float(trade_price),
+                "change": float(change_price or 0.0),
+                "changeRate": float(change_rate or 0.0) * 100.0,
+                "time": ts,
+            }
+        )
 
-        chg   = row.get("usd_24h_change", 0)
+    return items
 
-        items.append({
 
-            "symbol": x["name"],
+def fetch_crypto_markets(symbol_csv: str | None = None) -> List[Dict[str, Any]]:
+    """환경 변수 심볼 리스트를 KRW 마켓으로 변환 후 실시간 조회."""
+    sym_csv = symbol_csv or os.getenv("NEXT_PUBLIC_CRYPTO_LIST", DEFAULT_SYMBOLS)
+    markets = _to_upbit_markets(sym_csv)
+    return _fetch_upbit(markets)
 
-            "name": x["name"],
-
-            "price": float(price),
-
-            "change": 0.0,
-
-            "changeRate": float(chg),
-
-            "time": now
-
-        })
-
-    return {"ok": True, "source": "Coingecko", "items": items}

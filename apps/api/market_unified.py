@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 from .cache import load_cache, save_cache
 # ✅ 시간/신선도 유틸은 market_common에서
 from .market_common import is_fresh, now_ts, normalize_item
+from .market_crypto import fetch_crypto_markets
 
 # 시장별 수집 함수
 from .market_kr import fetch_from_naver as fetch_kr
@@ -33,7 +34,11 @@ def _fetch(seg: str) -> List[Dict[str, Any]]:
     if seg == "US":
         raw = fetch_us()
         return [normalize_item(it) for it in raw if it.get("price") is not None]
-    # TODO: crypto/commodity 있으면 여기에 추가
+    if seg == "CRYPTO":
+        try:
+            return fetch_crypto_markets()
+        except Exception:
+            return []
     return []
 
 
