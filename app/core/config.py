@@ -25,6 +25,8 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        # .env 파일이 없어도 에러 발생하지 않음 (환경변수에서 읽음)
+        env_file_required = False
 
 
 # 전역 설정 인스턴스
