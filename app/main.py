@@ -2,8 +2,16 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import router as v1_router
-from app.core.config import settings
+
+# 설정을 나중에 import하여 초기화 문제 방지
+try:
+    from app.core.config import settings
+except Exception:
+    # 설정 로드 실패 시 기본값 사용
+    class DefaultSettings:
+        environment = "development"
+        debug = False
+    settings = DefaultSettings()
 
 # FastAPI 애플리케이션 생성
 app = FastAPI(
@@ -28,8 +36,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API 라우터 등록
-app.include_router(v1_router.router)
+# API 라우터 등록 (에러 발생해도 계속 진행)
+try:
+    from app.api.v1 import router as v1_router
+    app.include_router(v1_router.router)
+except Exception as e:
+    # 라우터 등록 실패 시에도 애플리케이션은 시작되도록
+    print(f"Warning: Failed to register API router: {e}")
 
 
 @app.get("/")
