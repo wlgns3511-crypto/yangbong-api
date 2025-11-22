@@ -45,9 +45,15 @@ async def root():
 @app.get("/health")
 async def health_check():
     """헬스 체크 엔드포인트"""
+    try:
+        # 환경변수 없이도 동작하도록 try-except 처리
+        env = getattr(settings, 'environment', 'unknown')
+    except Exception:
+        env = 'unknown'
+    
     return {
         "status": "healthy",
-        "environment": settings.environment,
+        "environment": env,
     }
 
 
