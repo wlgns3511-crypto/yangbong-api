@@ -28,33 +28,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# v1 API 라우터 등록
-app.include_router(v1_router)
-
-
+# --- 헬스체크용 최소 엔드포인트 ---
 @app.get("/")
 async def root():
-    """루트 엔드포인트"""
-    return {
-        "message": "양봉클럽 API 서버",
-        "version": "1.0.0",
-        "docs": "/docs",
-    }
+    return {"status": "ok"}
 
 
 @app.get("/health")
-async def health_check():
-    """헬스 체크 엔드포인트"""
-    try:
-        # 환경변수 없이도 동작하도록 try-except 처리
-        env = getattr(settings, 'environment', 'unknown')
-    except Exception:
-        env = 'unknown'
-    
-    return {
-        "status": "healthy",
-        "environment": env,
-    }
+async def health():
+    return {"status": "ok"}
+# --------------------------------
+
+# v1 API 라우터 등록
+app.include_router(v1_router)
 
 
 if __name__ == "__main__":
