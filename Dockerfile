@@ -20,13 +20,17 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 # 애플리케이션 코드 복사
 COPY . .
 
+# 시작 스크립트 복사 및 실행 권한 부여
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # 포트 노출
 EXPOSE 8000
 
 # 헬스체크 제거 (빌드 단계에서 문제를 일으킬 수 있음)
 # 런타임에 플랫폼이 헬스체크를 제공함
 
-# Uvicorn으로 FastAPI 실행
-# Railway는 PORT 환경변수를 제공하므로 사용 (기본값 8000)
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# 시작 스크립트 실행
+# Railway는 PORT 환경변수를 제공하므로 스크립트에서 처리
+CMD ["/app/start.sh"]
 
