@@ -27,5 +27,6 @@ EXPOSE 8000
 # 런타임에 플랫폼이 헬스체크를 제공함
 
 # Uvicorn으로 FastAPI 실행
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Railway는 PORT 환경변수를 제공하므로 사용 (기본값 8000)
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
